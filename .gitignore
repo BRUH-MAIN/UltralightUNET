@@ -226,4 +226,8 @@ data_hf_tmp/
 
 # Training artefacts: checkpoints, logs, per-image prediction overlays
 results/
+!results/COMPARISON.md
 *.pth
+
+# Kaggle run exports (notebooks with outputs, zipped results)
+kaggle_runs/

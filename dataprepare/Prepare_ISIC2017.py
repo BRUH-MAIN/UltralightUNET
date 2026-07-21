@@ -13,10 +13,20 @@ Semantics preserved:
 
 Two deliberate deviations, both recorded in README.md:
 
-  1. Sorted listing. Upstream slices raw glob.glob() order, which is filesystem
-     dependent and so not reproducible across machines. Sorting makes the split
-     deterministic. The paper describes the split only as "random", so this is
-     the most likely source of any small metric delta.
+  1. Seeded shuffle before splitting. Upstream slices raw glob.glob() order,
+     which is filesystem dependent and so not reproducible across machines.
+
+     Sorting instead is reproducible but WRONG: ISIC IDs correlate with
+     acquisition source, so contiguous slices are biased. Measured on the sorted
+     order, mean lesion area is 22.9% of the frame in train[0:1250] but 8.0% in
+     val[1250:1400] and 15.0% in test[1400:2000] -- corr(index, lesion fraction)
+     = -0.281. Training on that split cost 4.1 DSC points (0.8682 vs the paper's
+     0.9091), with the error concentrated in sensitivity and precision exactly as
+     an under-segmenting model would predict.
+
+     A seeded permutation is both reproducible and unbiased, so it is what we use.
+     SPLIT_SEED is fixed at 42 to match config.seed. This is the closest honest
+     analogue of the paper's "randomly divided".
 
   2. uint8 storage instead of float64. scipy.misc.imresize returned uint8 and
      upstream immediately widened it with np.double(); storing the uint8 is
@@ -40,6 +50,8 @@ N_TRAIN = 1250
 N_VAL = 150
 N_TEST = 600
 
+SPLIT_SEED = 42  # matches configs/config_setting.py:seed
+
 
 def main():
     ap = argparse.ArgumentParser()
@@ -55,9 +67,14 @@ def main():
         if not os.path.isdir(d):
             raise SystemExit(f"missing {d}\nRun: python scripts/download_isic.py --dataset ISIC2017")
 
-    tr_list = sorted(glob.glob(os.path.join(img_dir, "*.jpg")))  # see deviation (1)
+    # sort for a deterministic starting point, then permute with a fixed seed so the
+    # split is both reproducible and unbiased with respect to ISIC ID -- see
+    # deviation (1) in the module docstring.
+    tr_list = sorted(glob.glob(os.path.join(img_dir, "*.jpg")))
     if len(tr_list) != N_TOTAL:
         raise SystemExit(f"expected {N_TOTAL} images in {img_dir}, found {len(tr_list)}")
+    order = np.random.default_rng(SPLIT_SEED).permutation(N_TOTAL)
+    tr_list = [tr_list[i] for i in order]
 
     data = np.zeros([N_TOTAL, HEIGHT, WIDTH, CHANNELS], dtype=np.uint8)
     label = np.zeros([N_TOTAL, HEIGHT, WIDTH], dtype=np.uint8)

@@ -18,7 +18,13 @@ Prec 0.9481, at 0.049 M params / 0.060 GFLOPs.
 | GFLOPs | 0.060 | **0.0602** | see note below |
 | equivalence tests | — | 19/19 pass | scan + PVM batching, fwd < 1e-5, grads < 1e-4 |
 | epoch time | — | 48 s (train + val) | RTX 3050; **~3.3 h** for 250 epochs |
-| ISIC2017 metrics | DSC 0.9091 | _pending_ | |
+| ISIC2017 DSC | 0.9091 | 0.8682 (run 1, bad split) | re-running with the fix |
+
+Run 1 trained cleanly for 250 epochs but came in 4.1 DSC points low. The cause was the data split,
+not the model: sorting the file listing produced train/val/test blocks with 22.9% / 8.0% / 15.0%
+mean lesion area, because ISIC IDs correlate with acquisition source. Fixed with a seeded
+permutation (20.0% / 17.6% / 18.6%). Full diagnosis in
+[results/COMPARISON.md](results/COMPARISON.md).
 
 > **On GFLOPs.** Our raw thop reading is 0.0649. The gap is a measurement artifact, not a model
 > difference: thop can only count operations that pass through an `nn.Module.forward`. In the
@@ -73,19 +79,21 @@ Built from `ISIC-2017_Training_Data.zip` (5.8 GB, 2000 JPEGs) and
 `isic-challenge-data.s3.amazonaws.com`. The 2001 superpixel/licence files bundled in the image
 archive are discarded. 524 MB total.
 
+Split with `SPLIT_SEED = 42`.
+
 | file | shape | dtype | sha256 (file) |
 |---|---|---|---|
-| `data_train.npy` | (1250, 256, 256, 3) | uint8 | `ff008f4b31e2cd3c…` |
-| `data_val.npy` | (150, 256, 256, 3) | uint8 | `4d166e179a28d2ba…` |
-| `data_test.npy` | (600, 256, 256, 3) | uint8 | `b07d93f4fdb1210c…` |
-| `mask_train.npy` | (1250, 256, 256) | uint8 | `71f79783f5ad69dd…` |
-| `mask_val.npy` | (150, 256, 256) | uint8 | `00a26b8fd73be7bd…` |
-| `mask_test.npy` | (600, 256, 256) | uint8 | `1eb78e7cf33d3066…` |
+| `data_train.npy` | (1250, 256, 256, 3) | uint8 | `d8f1101f99fd7be6…` |
+| `data_val.npy` | (150, 256, 256, 3) | uint8 | `3c7fe7c64546c094…` |
+| `data_test.npy` | (600, 256, 256, 3) | uint8 | `4f2e920a0fda6bab…` |
+| `mask_train.npy` | (1250, 256, 256) | uint8 | `10563338a5bff3b6…` |
+| `mask_val.npy` | (150, 256, 256) | uint8 | `ff0ec2327b170f6b…` |
+| `mask_test.npy` | (600, 256, 256) | uint8 | `d28c772b730a0847…` |
 
-Verified: no image appears in more than one split; masks are 22.9% foreground with 1.02%
-intermediate values (bilinear edge blur, as expected); the loader yields images in **[0, 255]**
-— not [0, 1] — and masks in [0, 1], matching upstream. The copy on HuggingFace was re-downloaded
-and confirmed byte-identical to these before the raw archives were deleted.
+Verified: a clean partition of exactly 2000 unique images, with mean lesion area balanced across
+splits at 20.0% / 17.6% / 18.6%; masks carry 1.02% intermediate values (bilinear edge blur, as
+expected); the loader yields images in **[0, 255]** — not [0, 1] — and masks in [0, 1], matching
+upstream.
 
 ## Run
 
@@ -187,9 +195,12 @@ layer shape, on outputs *and* on all parameter gradients, plus end-to-end throug
 `imresize` (removed in SciPy ≥ 1.3; upstream's workaround is a second Python 3.7 conda environment).
 Two substantive changes:
 
-- **Sorted file listing.** Upstream slices raw `glob.glob()` order, which is filesystem-dependent
-  and therefore not reproducible across machines. We sort first. The paper describes the split only
-  as "random", so this is the most likely source of any small metric delta.
+- **Seeded shuffle before splitting** (`SPLIT_SEED = 42`). Upstream slices raw `glob.glob()` order,
+  which is filesystem-dependent and so not reproducible. Sorting instead is reproducible but
+  *wrong*: ISIC IDs correlate with acquisition source, so contiguous slices are biased — the sorted
+  split gave train/val/test mean lesion areas of 22.9% / 8.0% / 15.0% and cost 4.1 DSC points.
+  A seeded permutation is reproducible **and** unbiased, and is the closest honest analogue of the
+  paper's "randomly divided". See [results/COMPARISON.md](results/COMPARISON.md).
 - **uint8 storage.** `scipy.misc.imresize` returned uint8 and upstream immediately widened it with
   `np.double()`, so keeping the uint8 is lossless with respect to the original pipeline — and takes
   the `.npy` output from ~4 GB to ~525 MB. `loader.dataset_normalized` casts to float32.
