@@ -6,10 +6,12 @@ runs and the Kaggle T4 training runs consume the identical bytes. Nothing
 re-derives the split on the training machine.
 
     # once, after running dataprepare/Prepare_ISIC2017.py
-    python scripts/hf_data.py push --dataset ISIC2017 --repo <user>/ultralight-vmunet-data
+    python scripts/hf_data.py push --dataset ISIC2017
 
     # on any machine, including a Kaggle notebook
-    python scripts/hf_data.py pull --dataset ISIC2017 --repo <user>/ultralight-vmunet-data
+    python scripts/hf_data.py pull --dataset ISIC2017
+
+Both default to DEFAULT_REPO below; pass --repo to override.
 
 Auth: huggingface_hub picks up HF_TOKEN from the environment or the token saved
 by `huggingface-cli login`. For a private repo on Kaggle, add HF_TOKEN as a
@@ -19,6 +21,8 @@ notebook secret; for a public repo, `pull` needs no token at all.
 import argparse
 import os
 import sys
+
+DEFAULT_REPO = "RohanRamesh/ultralight-vmunet-data"
 
 SPLIT_FILES = [f"{kind}_{split}.npy"
                for kind in ("data", "mask")
@@ -94,7 +98,8 @@ def main():
     for name, fn in (("push", push), ("pull", pull)):
         p = sub.add_parser(name)
         p.add_argument("--dataset", default="ISIC2017", choices=["ISIC2017", "ISIC2018", "PH2"])
-        p.add_argument("--repo", required=True, help="e.g. yourname/ultralight-vmunet-data")
+        p.add_argument("--repo", default=DEFAULT_REPO,
+                       help=f"dataset repo id (default: {DEFAULT_REPO})")
         p.set_defaults(fn=fn)
 
     sub.choices["push"].add_argument(

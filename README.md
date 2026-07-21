@@ -54,14 +54,17 @@ uv pip install -r requirements.txt
 ```bash
 python scripts/download_isic.py --dataset ISIC2017   # 5.8 GB from the ISIC S3 bucket
 python dataprepare/Prepare_ISIC2017.py               # -> data/ISIC2017/*.npy  (~525 MB)
-python scripts/hf_data.py push --dataset ISIC2017 --repo <user>/ultralight-vmunet-data
+python scripts/hf_data.py push --dataset ISIC2017            # -> RohanRamesh/ultralight-vmunet-data
 ```
 
 Then on any machine (including a Kaggle notebook), skip straight to:
 
 ```bash
-python scripts/hf_data.py pull --dataset ISIC2017 --repo <user>/ultralight-vmunet-data
+python scripts/hf_data.py pull --dataset ISIC2017
 ```
+
+Both default to the private `RohanRamesh/ultralight-vmunet-data` repo; pass `--repo` to override.
+Set `HF_TOKEN`, or log in once with `huggingface-cli login`.
 
 ### Prepared ISIC2017 splits
 
