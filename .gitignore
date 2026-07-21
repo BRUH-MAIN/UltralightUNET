@@ -216,3 +216,14 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# ---- UltraLight VM-UNet replication ----
+# Datasets: ~5.8 GB of ISIC archives + ~525 MB of prepared .npy.
+# The prepared splits live on HuggingFace instead (scripts/hf_data.py).
+data/
+data_hf_tmp/
+*.npy
+
+# Training artefacts: checkpoints, logs, per-image prediction overlays
+results/
+*.pth

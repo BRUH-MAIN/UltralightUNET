@@ -1,0 +1,25 @@
+# UltraLight VM-UNet replication -- Windows / RTX 3050 (4 GB VRAM)
+#
+# Install torch first, from the cu117 index:
+#   uv pip install torch==2.0.1+cu117 torchvision==0.15.2+cu117 \
+#       --index-url https://download.pytorch.org/whl/cu117
+# then:
+#   uv pip install -r requirements.txt
+#
+# NOTE: mamba_ssm / causal_conv1d / triton are deliberately NOT listed.
+# They have no working Windows build for this interpreter; models/mamba_pytorch.py
+# is a pure-PyTorch replacement. See README.md.
+
+timm==0.4.12
+einops==0.8.0
+numpy==1.26.4
+pillow==10.4.0
+scipy==1.14.1
+scikit-learn==1.5.2
+matplotlib==3.9.2
+tqdm==4.66.5
+thop==0.1.1.post2209072238
+tensorboardX==2.6.2.2
+yacs==0.1.8
+pytest==8.3.3
+huggingface_hub==0.26.2
