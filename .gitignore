@@ -224,8 +224,10 @@ data/
 data_hf_tmp/
 *.npy
 
-# Training artefacts: checkpoints, logs, per-image prediction overlays
-results/
+# Training artefacts: checkpoints, logs, per-image prediction overlays.
+# Note: `results/` alone would exclude the directory itself, and git will not
+# descend into an excluded directory -- so the negation below could never match.
+results/*
 !results/COMPARISON.md
 *.pth
 
