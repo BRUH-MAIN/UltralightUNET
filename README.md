@@ -40,7 +40,13 @@ permutation (20.0% / 17.6% / 18.6%). Full diagnosis in
 |---|---|---|
 | Debug | Windows 11, RTX 3050 Laptop (4 GB) | script development, tests, smoke runs |
 | Train | Kaggle, 2 × T4 | the 250-epoch runs (one experiment per GPU, in parallel) |
-| Data | HuggingFace dataset | prepared `.npy` splits, shared by both |
+| Train | RTX 5060 laptop (Blackwell) | see [`blackwell/`](blackwell/) — separate codebase copy |
+| Data | HuggingFace dataset | prepared `.npy` splits, shared by all |
+
+> **Running on an RTX 50-series card?** Use [`blackwell/`](blackwell/), not this root codebase.
+> The `torch 2.0.1+cu117` pinned here has kernels only up to sm_86 and cannot execute on Blackwell
+> (sm_120) at all. `blackwell/` is a self-contained copy on torch 2.7+/cu128, with its own
+> [notebook](blackwell/notebooks/train_test.ipynb) for training and testing.
 
 Preprocessing and the train/val/test split happen **once, locally**. Both machines then consume the
 identical prepared bytes, so nothing about the split can drift between debugging and training.

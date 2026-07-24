@@ -225,10 +225,15 @@ data_hf_tmp/
 *.npy
 
 # Training artefacts: checkpoints, logs, per-image prediction overlays.
-# Note: `results/` alone would exclude the directory itself, and git will not
-# descend into an excluded directory -- so the negation below could never match.
-results/*
-!results/COMPARISON.md
+# Two subtleties:
+#   * `results/` alone would exclude the directory itself, and git does not
+#     descend into an excluded directory -- so the negation could never match.
+#     Excluding `results/*` instead leaves the directory visible.
+#   * a leading `**/` is required to reach blackwell/results/ as well; a pattern
+#     containing a slash is otherwise anchored to this file's directory, which
+#     would have let 600 prediction PNGs into the repo.
+**/results/*
+!**/results/COMPARISON.md
 *.pth
 
 # Kaggle run exports (notebooks with outputs, zipped results)
