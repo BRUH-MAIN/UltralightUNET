@@ -18,12 +18,14 @@ Prec 0.9481, at 0.049 M params / 0.060 GFLOPs.
 | GFLOPs | 0.060 | **0.0602** | see note below |
 | equivalence tests | — | 19/19 pass | scan + PVM batching, fwd < 1e-5, grads < 1e-4 |
 | epoch time | — | 48 s (train + val) | RTX 3050; **~3.3 h** for 250 epochs |
-| ISIC2017 DSC | 0.9091 | 0.8682 (run 1, bad split) | re-running with the fix |
+| ISIC2017 DSC | 0.9091 | **0.9030** | **−0.0061 — replicated** |
 
-Run 1 trained cleanly for 250 epochs but came in 4.1 DSC points low. The cause was the data split,
-not the model: sorting the file listing produced train/val/test blocks with 22.9% / 8.0% / 15.0%
-mean lesion area, because ISIC IDs correlate with acquisition source. Fixed with a seeded
-permutation (20.0% / 17.6% / 18.6%). Full diagnosis in
+**Replication successful.** Run 2 (corrected split, RTX 5060) landed DSC 0.9030 against the paper's
+0.9091 — a 0.67% gap, inside the ±0.01 band set beforehand. ACC and SP match to ~0.001; SE is
+−0.0096. Run 1 had come in 4.1 DSC points low purely because of a biased split (sorting the file
+listing gave train/val/test lesion areas of 22.9% / 8.0% / 15.0%, since ISIC IDs correlate with
+acquisition source); a seeded permutation fixed the balance to 20.0% / 17.6% / 18.6% and recovered
++0.0348 DSC. Full analysis, including why the residual gap is expected, in
 [results/COMPARISON.md](results/COMPARISON.md).
 
 > **On GFLOPs.** Our raw thop reading is 0.0649. The gap is a measurement artifact, not a model

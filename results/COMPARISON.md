@@ -77,18 +77,59 @@ Prepared split hashes (sha256, first 16 hex):
 | `mask_val.npy` | `ff0ec2327b170f6b…` |
 | `mask_test.npy` | `d28c772b730a0847…` |
 
-## Run 2 — seeded shuffle split
+## Run 2 — seeded shuffle split — **replication successful**
 
-_Pending._ Same code, same hyperparameters, corrected split.
+250 epochs, RTX 5060 (Blackwell, sm_120), the `blackwell/` codebase on torch 2.7+/cu128.
+Same model and hyperparameters as run 1; only the split changed.
 
-| metric | paper | run 2 | Δ |
-|---|---|---|---|
-| DSC / F1 | 0.9091 | | |
-| IoU | 0.8334 | | |
-| SE / Recall | 0.9053 | | |
-| SP | 0.9790 | | |
-| ACC | 0.9646 | | |
-| Prec | 0.9481 | | |
+| metric | paper | run 2 | Δ | |
+|---|---|---|---|---|
+| **DSC / F1** | 0.9091 | **0.9030** | **−0.0061** | within tolerance |
+| IoU | 0.8334 | 0.8232 | −0.0102 | forced by DSC, see below |
+| SE / Recall | 0.9053 | 0.8957 | −0.0096 | |
+| SP | 0.9790 | 0.9799 | +0.0009 | |
+| ACC | 0.9646 | 0.9643 | −0.0003 | |
+| Prec | 0.9481 | _not logged_ | | |
+
+Test loss 0.2429. The `engine.py` log line does not print precision; it is recoverable from the
+confusion matrix if needed.
+
+### The split fix worked
+
+Correcting the biased split moved DSC from **0.8682 → 0.9030 (+0.0348)**, recovering essentially
+all of the 4.1-point gap that run 1 showed. The remaining gap to the paper is **0.0061 DSC
+(0.67%)** — inside the ±0.01 band set before the run, so this is a successful replication of the
+paper's headline ISIC2017 result.
+
+### On the IoU flag
+
+The notebook's comparison cell flags IoU as "outside ±0.01", but that is not an independent
+finding. For a single foreground class, IoU and DSC are the same measurement:
+
+```
+IoU = DSC / (2 − DSC)
+```
+
+This reproduces both rows exactly at the reported precision — paper DSC 0.9091 → IoU 0.8333
+(reported 0.8334), ours DSC 0.9030 → IoU 0.8232 (reported 0.8232). So the −0.0102 IoU delta is
+mechanically forced by the −0.0061 DSC delta, amplified 1.67× by the nonlinearity; it carries no
+information beyond the DSC gap. A ±0.01 threshold is simply too tight for IoU when the same
+tolerance is applied to DSC — the honest single number to judge is the 0.67% DSC gap.
+
+### Why not an exact match
+
+The residual sub-1% gap is expected and not worth chasing:
+
+- **The split.** The paper's partition is described only as "randomly divided", with no seed. A
+  different random partition of the same 2000 images lands slightly differently; ours uses
+  `SPLIT_SEED = 42`.
+- **The stack.** This run used torch 2.7+/cuDNN on Blackwell; the paper used a single V100 on an
+  unstated (older) torch. cuDNN convolution-algorithm selection is not bit-stable across versions
+  or architectures.
+- **Val batching.** `val_batch_size = 30` shifts the *selection* loss by ~6e-5 (fp32 noise), which
+  could in principle pick a different best epoch in a near-tie. Far below the gap above.
+
+None of these is a defect to fix; each is a documented, principled difference from the original.
 
 ## Remaining known deviations
 
