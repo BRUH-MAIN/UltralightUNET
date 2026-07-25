@@ -14,7 +14,10 @@ import torch
 from torch import nn
 import torch.nn.functional as F
 
-from timm.models.layers import trunc_normal_
+try:  # timm >= 0.9 moved this; the old path is a deprecated shim that later drops.
+    from timm.layers import trunc_normal_
+except ImportError:  # older timm (e.g. the 0.4.12 pinned for the Kaggle cu117 env)
+    from timm.models.layers import trunc_normal_
 import math
 
 from models.mamba_pytorch import Mamba
