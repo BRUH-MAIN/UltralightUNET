@@ -52,7 +52,12 @@ class config:
     eps = 1e-8
     amsgrad = False          # required by utils.get_optimizer (reused from Phase 1)
     sch = 'CosineAnnealingLR'
-    T_max = 50
+    # T_max must equal epochs for a single clean anneal to eta_min at the end.
+    # CosineAnnealingLR is a cosine of period 2*T_max, so T_max < epochs makes the
+    # LR climb back toward the maximum before the run ends -- e.g. T_max=50 over 100
+    # epochs leaves the LR near its peak at epoch 100, so the best checkpoint gets
+    # caught mid-cycle with no low-LR fine-tuning phase.
+    T_max = epochs
     eta_min = 1e-5
     last_epoch = -1          # required by utils.get_scheduler
     amp = False
