@@ -118,9 +118,34 @@ def build_criterion(config, class_weights=None):
 
 
 def compute_class_weights(manifest_df, config, device):
-    """Balanced inverse-frequency weights from the TRAIN split. weight_i = N/(C*n_i)."""
+    """Per-class loss weights from the TRAIN split, normalised to mean 1.
+
+    ``config.weight_scheme`` selects how aggressively rare classes are up-weighted:
+
+      'inverse'       w_i propto 1/n_i         -- full inverse frequency (280x spread
+                                                  here). Crushes the majority class:
+                                                  BCC errors become nearly free, so
+                                                  the model stops predicting BCC.
+      'sqrt_inverse'  w_i propto 1/sqrt(n_i)   -- gentler (~17x spread).
+      'effective_num' Cui et al. 2019          -- w_i propto (1-beta)/(1-beta^n_i);
+                                                  interpolates between uniform (beta=0)
+                                                  and inverse (beta->1). The principled
+                                                  default for extreme imbalance.
+    """
     tr = manifest_df[manifest_df.split == 'train']
     counts = tr['label_idx'].value_counts().reindex(range(config.num_classes)).fillna(0).values
-    counts = np.clip(counts, 1, None)
-    w = counts.sum() / (config.num_classes * counts)
+    counts = np.clip(counts, 1, None).astype(np.float64)
+
+    scheme = getattr(config, 'weight_scheme', 'inverse')
+    if scheme == 'effective_num':
+        beta = getattr(config, 'weight_beta', 0.999)
+        w = (1.0 - beta) / (1.0 - np.power(beta, counts))
+    elif scheme == 'sqrt_inverse':
+        w = 1.0 / np.sqrt(counts)
+    elif scheme == 'inverse':
+        w = 1.0 / counts
+    else:
+        raise ValueError(f'unknown weight_scheme {scheme!r}')
+
+    w = w / w.mean()   # mean 1, so the loss scale is comparable across schemes
     return torch.tensor(w, dtype=torch.float32, device=device)

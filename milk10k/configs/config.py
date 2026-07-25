@@ -38,7 +38,16 @@ class config:
     # 'focal' is the experiment.
     loss = 'weighted_ce'      # 'weighted_ce' | 'focal' | 'ce'
     focal_gamma = 2.0
-    class_weighting = True    # inverse-frequency weights computed from the TRAIN split
+    class_weighting = True    # apply per-class weights (computed from the TRAIN split)
+    # How hard to up-weight rare classes. Full 'inverse' (the first run) crushed the
+    # majority class -- BCC dropped to 0.31 recall despite 0.80 precision. 'effective_num'
+    # is the gentler, principled default; 'sqrt_inverse' is a simpler middle ground.
+    # sqrt_inverse (17x spread, BCC weight 0.19) is the recommended default: it lifts
+    # rare classes without crushing the majority the way full inverse (294x, BCC 0.02)
+    # did. effective_num at beta=0.999 is still aggressive here (139x); lower beta to
+    # soften it. Sweep these by val macro-F1 if you want the last few points.
+    weight_scheme = 'sqrt_inverse'    # 'sqrt_inverse' | 'effective_num' | 'inverse'
+    weight_beta = 0.99                # effective_num only; higher = closer to inverse
 
     # ---- optimisation.  AdamW + cosine, same family as Phase 1.
     seed = 42
