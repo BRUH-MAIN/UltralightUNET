@@ -224,17 +224,24 @@ data/
 data_hf_tmp/
 *.npy
 
-# Training artefacts: checkpoints, logs, per-image prediction overlays.
-# Two subtleties:
-#   * `results/` alone would exclude the directory itself, and git does not
-#     descend into an excluded directory -- so the negation could never match.
-#     Excluding `results/*` instead leaves the directory visible.
-#   * a leading `**/` is required to reach blackwell/results/ as well; a pattern
-#     containing a slash is otherwise anchored to this file's directory, which
-#     would have let 600 prediction PNGs into the repo.
-**/results/*
-!**/results/COMPARISON.md
+# Training artefacts. Track the small, shareable text -- run logs, per-run metrics
+# JSON, COMPARISON.md -- but keep the heavy binaries out: model checkpoints and
+# per-image prediction overlays.
+#
+# git cannot un-ignore a file whose parent directory is ignored, so rather than
+# blanket-ignoring results/ we ignore the heavy files by type. The leading **/
+# reaches blackwell/results/ and milk10k/results/ too (a slash-bearing pattern is
+# otherwise anchored to this file's directory).
+# NOTE: .gitignore has NO inline comments -- a trailing "# ..." becomes part of the
+# pattern, so every rule below must sit alone on its line.
+# model checkpoints (big):
 *.pth
+# per-image prediction overlays from segmentation runs (many PNGs):
+**/results/**/*.png
+# the global *.log rule above hides run logs; re-allow them under results/ so a run's
+# training/metrics history can be committed. test_metrics.json is plain JSON and was
+# never ignored once results/ itself stopped being blanket-excluded.
+!**/results/**/*.log
 
 # Kaggle run exports (notebooks with outputs, zipped results)
 kaggle_runs/
