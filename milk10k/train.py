@@ -70,7 +70,7 @@ def preflight(logger):
 
 
 def main(config):
-    run = f'milk10k_{config.modality}_{datetime.now():%Y%m%d_%H%M%S}'
+    run = f'milk10k_{config.modality}_s{config.seed}_{datetime.now():%Y%m%d_%H%M%S}'
     work_dir = os.path.join(config.work_dir + run)
     os.makedirs(os.path.join(work_dir, 'checkpoints'), exist_ok=True)
     logger = get_logger('train', os.path.join(work_dir, 'log'))
@@ -142,7 +142,11 @@ if __name__ == '__main__':
     ap.add_argument('--epochs', type=int, default=config.epochs)
     ap.add_argument('--weight-scheme', dest='weight_scheme', default=config.weight_scheme,
                     choices=['sqrt_inverse', 'effective_num', 'inverse'])
+    ap.add_argument('--seed', type=int, default=config.seed,
+                    help='training seed. Run 3 seeds per modality and report mean+-std: '
+                         'a single-seed macro-F1 gap of ~0.01 on 786 test lesions is noise.')
     args = ap.parse_args()
+    config.seed = args.seed
     # CLI overrides win over the file, so runs never depend on hand-editing a tracked
     # config (a `git pull` would revert such an edit). T_max tracks epochs -- see config.
     config.modality = args.modality
