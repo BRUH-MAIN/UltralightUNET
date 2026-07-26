@@ -74,7 +74,10 @@ def main(config):
     work_dir = os.path.join(config.work_dir + run)
     os.makedirs(os.path.join(work_dir, 'checkpoints'), exist_ok=True)
     logger = get_logger('train', os.path.join(work_dir, 'log'))
-    logger.info(f'run {run}; modality={config.modality}; loss={config.loss}')
+    banner = (f'RUN CONFIG  modality={config.modality}  fusion={config.fusion}  '
+              f'loss={config.loss}/{config.weight_scheme}  epochs={config.epochs}')
+    print('=' * len(banner) + f'\n{banner}\n' + '=' * len(banner))   # loud, so the active
+    logger.info(banner)                                              # modality is unmissable
 
     set_seed(config.seed)
     preflight(logger)
@@ -130,4 +133,21 @@ def main(config):
 
 
 if __name__ == '__main__':
+    import argparse
+    ap = argparse.ArgumentParser(description='Train the MILK10k classifier.')
+    ap.add_argument('--modality', choices=['derm', 'clin', 'both'], default=config.modality,
+                    help='which image(s) the model sees (default from config)')
+    ap.add_argument('--fusion', choices=['cross_mamba', 'concat'], default=config.fusion,
+                    help="fusion for modality='both'")
+    ap.add_argument('--epochs', type=int, default=config.epochs)
+    ap.add_argument('--weight-scheme', dest='weight_scheme', default=config.weight_scheme,
+                    choices=['sqrt_inverse', 'effective_num', 'inverse'])
+    args = ap.parse_args()
+    # CLI overrides win over the file, so runs never depend on hand-editing a tracked
+    # config (a `git pull` would revert such an edit). T_max tracks epochs -- see config.
+    config.modality = args.modality
+    config.fusion = args.fusion
+    config.epochs = args.epochs
+    config.T_max = args.epochs
+    config.weight_scheme = args.weight_scheme
     main(config)
