@@ -2,10 +2,11 @@
 
 Why this exists: UltraLight VM-UNet is 0.049M parameters, so VRAM is never the
 limit -- a batch of 8 uses under 1 GB of a 15 GB T4. The cost is dominated by
-kernel-launch overhead, because the selective scan issues ~176 sequential
-launches per forward *regardless of batch size*. A larger batch therefore
-amortises a fixed cost over more images, which is a real speedup up to the point
-where the GPU finally becomes compute- or bandwidth-bound.
+per-launch overhead: the network is a long chain of individually tiny operations,
+and the number of launches per forward is fixed by the architecture rather than by
+the batch size. A larger batch therefore amortises a fixed cost over more images,
+which is a real speedup up to the point where the GPU finally becomes compute- or
+bandwidth-bound.
 
 Where that point falls is hardware specific, so measure rather than guess:
 

@@ -49,6 +49,7 @@ N_TOTAL = 2000
 N_TRAIN = 1250
 N_VAL = 150
 N_TEST = 600
+assert N_TRAIN + N_VAL + N_TEST == N_TOTAL
 
 SPLIT_SEED = 42  # matches configs/config_setting.py:seed
 

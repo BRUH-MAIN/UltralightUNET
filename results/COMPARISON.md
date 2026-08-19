@@ -7,10 +7,16 @@ Reference: Table 1 of Wu et al., *Patterns* 6, 101298 (2025), ISIC2017 block.
 | | paper | ours | |
 |---|---|---|---|
 | parameters | 49,457 (0.049 M) | **49,457** | exact |
-| GFLOPs | 0.060 | **0.0602** | see README, thop cannot see fused CUDA calls |
+| GFLOPs | 0.060 | **0.0602** | as thop reads it; see README on the fused-kernel blind spot |
 
-The parameter count matching exactly is the strong evidence that the vendored pure-PyTorch Mamba
-has the same parameterisation as `mamba_ssm` at every one of the six PVM layers.
+The parameter count matches exactly at every one of the six PVM layers, which is the structural
+half of the replication: the model is the paper's model, not merely one shaped like it.
+
+> **Note on the scan.** Runs 1 and 2 were produced by the pure-PyTorch reimplementation of Mamba in
+> `models/mamba_pytorch.py`. Run 3 is the first on `mamba_ssm`'s fused CUDA kernel — the same
+> dependency the paper uses — with that reimplementation kept as the oracle the test suite checks
+> the kernel against. Run 3 landed within 0.0004 DSC of run 2, which is the empirical version of
+> the equivalence the tests assert.
 
 ## Run 1 — sorted split (superseded)
 
@@ -79,8 +85,8 @@ Prepared split hashes (sha256, first 16 hex):
 
 ## Run 2 — seeded shuffle split — **replication successful**
 
-250 epochs, RTX 5060 (Blackwell, sm_120), the `blackwell/` codebase on torch 2.7+/cu128.
-Same model and hyperparameters as run 1; only the split changed.
+250 epochs, RTX 5060 (Blackwell, sm_120), torch 2.7+/cu128, pure-PyTorch scan. Same model and
+hyperparameters as run 1; only the split changed.
 
 | metric | paper | run 2 | Δ | |
 |---|---|---|---|---|
@@ -131,6 +137,52 @@ The residual sub-1% gap is expected and not worth chasing:
 
 None of these is a defect to fix; each is a documented, principled difference from the original.
 
+## Run 3 — `mamba_ssm` fused kernel — **replication confirmed**
+
+250 epochs, RTX 5060 (Blackwell, sm_120), torch 2.13.0+cu130, `mamba_ssm` 2.3.2.post1 +
+`causal_conv1d` 1.6.2.post1 compiled from source for sm_120. Identical split, seed and
+hyperparameters to run 2; the **only** change is that the selective scan is now the paper's fused
+CUDA kernel instead of the pure-PyTorch transcription of it.
+
+Best val loss 0.1960 @ epoch 130. Test loss 0.2453.
+Confusion matrix: `TN 31,403,838 · FP 614,506 · FN 790,663 · TP 6,512,593`
+
+| metric | paper | run 2 (PyTorch scan) | run 3 (`mamba_ssm`) | Δ vs paper | |
+|---|---|---|---|---|---|
+| **DSC / F1** | 0.9091 | 0.9030 | **0.9026** | **−0.0065** | within tolerance |
+| IoU | 0.8334 | 0.8232 | 0.8225 | −0.0109 | forced by DSC |
+| SE / Recall | 0.9053 | 0.8957 | 0.8917 | −0.0136 | |
+| SP | 0.9790 | 0.9799 | 0.9808 | +0.0018 | |
+| ACC | 0.9646 | 0.9643 | 0.9643 | −0.0003 | |
+| Prec | 0.9481 | _not logged_ | 0.9138 | −0.0343 | but see below |
+
+**The migration changed nothing measurable.** Run 3 lands 0.0004 DSC from run 2 — two independent
+scan implementations, 250 epochs apart, agreeing to the fourth decimal. That is the empirical
+counterpart to the equivalence the test suite asserts analytically.
+
+**Wall clock: 22.9 min** (21.7 min training at 5.2 s/epoch, 1.1 min for the 600-image test pass
+including its overlay PNGs), against 1.64 h for run 1 on a Kaggle T4.
+
+### On the precision gap
+
+Precision is the one metric more than 0.02 from the paper, and the discrepancy is in the paper's
+table rather than in this run. DSC is by definition the harmonic mean of precision and recall, so
+the paper's own three numbers have to satisfy it — and they do not:
+
+```
+2 · 0.9481 · 0.9053 / (0.9481 + 0.9053) = 0.9262    but the paper reports DSC 0.9091
+2 · 0.9138 · 0.8917 / (0.9138 + 0.8917) = 0.9026    ours, matching our reported DSC exactly
+```
+
+Inverting the identity for the precision consistent with the paper's *own* DSC 0.9091 and SE 0.9053
+gives **0.9129** — against our 0.9138, a difference of +0.0009. So on the paper's own definition of
+DSC our precision agrees to within a thousandth; the tabulated 0.9481 cannot be the pooled-pixel
+precision belonging to the rest of that row. Our six metrics are mutually consistent, all derivable
+from the single confusion matrix above.
+
+This is worth knowing before quoting the paper's precision as a target: it is the one cell in that
+row that no run reproducing the DSC can also match.
+
 ## Remaining known deviations
 
 Even with the split corrected, an exact match is not expected, because the paper's split is
@@ -140,17 +192,20 @@ replication.
 
 Other differences, all detailed in [../README.md](../README.md):
 
-- pure-PyTorch selective scan instead of the fused CUDA kernel (verified equivalent, 19/19 tests)
-- batched PVM branches and `unbind` in the scan loops (verified equivalent, forward and gradients)
+- `mamba_ssm` 2.3.2.post1 rather than the pinned 1.0.1, which cannot run on Blackwell at all
+  (`mamba_simple.py`, the file the model imports, is unchanged between the two on the training path)
+- batched PVM branches (verified equivalent, forward and gradients)
 - uint8 intermediate storage (lossless w.r.t. `scipy.misc.imresize`, which returned uint8)
 - Pillow resize rather than SciPy 1.2's `imresize` wrapper around the same PIL call
 - single GPU rather than the paper's single V100 — matched, no DataParallel
+- for runs 1 and 2 only: the pure-PyTorch selective scan, per the note at the top; run 3 uses the
+  fused kernel and lands 0.0004 DSC away
 
 ## Reproducing
 
 ```bash
 python scripts/download_isic.py --dataset ISIC2017
 python dataprepare/Prepare_ISIC2017.py
-python -m pytest tests/ -q          # expect 19 passed
+python -m pytest tests/ -q          # kernel-vs-oracle equivalence
 python train.py
 ```

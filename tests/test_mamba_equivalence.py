@@ -1,12 +1,21 @@
-"""The chunked selective scan must agree with the reference scan.
+"""mamba_ssm's fused CUDA kernel must compute what the reference scan computes.
 
-selective_scan_chunked is what actually runs during training; selective_scan_ref
-is the transcription of the official reference implementation. The chunked
-version reassociates the recurrence, so it is only a valid substitute if it
-agrees with the reference to floating-point tolerance -- forward and backward.
+The model runs ``mamba_ssm``. Nothing about a fused kernel is inspectable from the
+outside, so this file pins it against ``models/mamba_pytorch.py`` -- an
+independent transcription of the reference scan from the official Mamba
+repository -- at the six shapes UltraLight VM-UNet actually uses:
 
-The shapes exercised here are the real ones from UltraLight VM-UNet at a
-256x256 input, so a pass covers every scan the model actually performs.
+  1. the oracle checks itself: ``selective_scan_chunked``, which reassociates the
+     recurrence over chunks, against the plain per-timestep ``selective_scan_ref``
+  2. the kernel against the oracle, at the level of ``selective_scan_fn``
+  3. the kernel against the oracle, at the level of the whole ``Mamba`` module and
+     then the whole network -- initialisation, forward, and every gradient
+
+(2) and (3) need a GPU; (1) and the initialisation checks do not.
+
+Tolerances are relative to the scale of the quantity being compared: over L=1024
+accumulation steps fp32 rounding alone puts absolute error near 1e-5, so an
+absolute bound would be measuring float32 rather than the thing under test.
 """
 
 import math
@@ -14,7 +23,9 @@ import math
 import pytest
 import torch
 
-from models.mamba_pytorch import Mamba, selective_scan_chunked, selective_scan_ref
+import models.UltraLight_VM_UNet as model_module
+from models.mamba_pytorch import Mamba as MambaRef
+from models.mamba_pytorch import selective_scan_chunked, selective_scan_ref
 
 # (name, seq_len, d_inner) for the six PVM layers; d_state is 16 throughout.
 LAYERS = [
@@ -28,6 +39,11 @@ LAYERS = [
 
 BATCH = 2
 D_STATE = 16
+
+# mamba_ssm dispatches straight into a CUDA extension: there is no CPU path to
+# fall back to, so everything that touches it is skipped off-GPU.
+cuda_only = pytest.mark.skipif(not torch.cuda.is_available(),
+                               reason="mamba_ssm is CUDA-only")
 
 
 def _inputs(seqlen, d_inner, device, seed=0):
@@ -48,6 +64,16 @@ def _inputs(seqlen, d_inner, device, seed=0):
     return u, delta, A_log, B, C, D, z, dt_bias
 
 
+def _assert_close(name, ref, got, tol):
+    err = (ref - got).abs().max().item()
+    scale = max(ref.abs().max().item(), 1.0)
+    assert err / scale < tol, f"{name}: max|diff| = {err} (scale {scale}, tol {tol})"
+
+
+# --------------------------------------------------------------------------
+# 1. the oracle against itself
+# --------------------------------------------------------------------------
+
 @pytest.mark.parametrize("name,seqlen,d_inner", LAYERS, ids=[l[0] for l in LAYERS])
 def test_chunked_matches_reference(name, seqlen, d_inner):
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -63,18 +89,9 @@ def test_chunked_matches_reference(name, seqlen, d_inner):
         outs.append(out.detach())
         grads.append([a.grad.detach() for a in (u, delta, A_log, B, C, D, z, dt_bias)])
 
-    # Relative to the output scale: over L=1024 accumulation steps fp32 rounding
-    # alone puts absolute error near 1e-5, so an absolute bound would be measuring
-    # float32 rather than the reassociation.
-    fwd_err = (outs[0] - outs[1]).abs().max().item()
-    fwd_scale = max(outs[0].abs().max().item(), 1.0)
-    assert fwd_err / fwd_scale < 1e-5, (
-        f"{name}: forward max|diff| = {fwd_err} (scale {fwd_scale})")
-
+    _assert_close(f"{name} forward", outs[0], outs[1], 1e-5)
     for i, (g_ref, g_chunk) in enumerate(zip(*grads)):
-        err = (g_ref - g_chunk).abs().max().item()
-        scale = max(g_ref.abs().max().item(), 1.0)
-        assert err / scale < 1e-4, f"{name}: grad[{i}] max|diff| = {err} (scale {scale})"
+        _assert_close(f"{name} grad[{i}]", g_ref, g_chunk, 1e-4)
 
 
 @pytest.mark.parametrize("chunk_size", [1, 7, 32, 1024])
@@ -87,32 +104,176 @@ def test_chunk_size_invariance(chunk_size):
     ref = selective_scan_ref(u, delta, A, B, C, D, z=z, delta_bias=dt_bias, delta_softplus=True)
     got = selective_scan_chunked(u, delta, A, B, C, D, z=z, delta_bias=dt_bias,
                                  delta_softplus=True, chunk_size=chunk_size)
-    err = (ref - got).abs().max().item()
-    scale = max(ref.abs().max().item(), 1.0)
-    assert err / scale < 1e-5, f"chunk_size={chunk_size}: max|diff| = {err} (scale {scale})"
+    _assert_close(f"chunk_size={chunk_size}", ref, got, 1e-5)
 
 
-def test_mamba_module_shapes_and_param_count():
-    """Per-layer parameter counts must match mamba_ssm's for the model total to hold."""
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    for name, seqlen, d_inner in LAYERS:
-        d_model = d_inner // 2
-        m = Mamba(d_model=d_model, d_state=D_STATE, d_conv=4, expand=2).to(device)
+# --------------------------------------------------------------------------
+# 2. the CUDA kernel against the oracle, scan by scan
+# --------------------------------------------------------------------------
 
-        assert m.dt_rank == math.ceil(d_model / 16) == 1, name
-        assert m.d_inner == d_inner, name
+@cuda_only
+@pytest.mark.parametrize("name,seqlen,d_inner", LAYERS, ids=[l[0] for l in LAYERS])
+def test_selective_scan_cuda_matches_reference(name, seqlen, d_inner):
+    """selective_scan_fn (the fused kernel) vs selective_scan_ref, fwd and bwd."""
+    from mamba_ssm.ops.selective_scan_interface import selective_scan_fn
 
-        # in_proj + conv1d + x_proj + dt_proj + A_log + D + out_proj
-        expected = (
-            d_model * d_inner * 2                       # in_proj (bias=False)
-            + d_inner * 4 + d_inner                      # conv1d weight + bias
-            + d_inner * (m.dt_rank + 2 * D_STATE)        # x_proj (bias=False)
-            + m.dt_rank * d_inner + d_inner              # dt_proj weight + bias
-            + d_inner * D_STATE                          # A_log
-            + d_inner                                    # D
-            + d_inner * d_model                          # out_proj (bias=False)
-        )
-        assert sum(p.numel() for p in m.parameters()) == expected, name
+    args = _inputs(seqlen, d_inner, "cuda")
 
-        x = torch.randn(BATCH, seqlen, d_model, device=device)
-        assert m(x).shape == (BATCH, seqlen, d_model), name
+    outs, grads = [], []
+    for scan in (selective_scan_ref, selective_scan_fn):
+        u, delta, A_log, B, C, D, z, dt_bias = [a.detach().clone().requires_grad_(True) for a in args]
+        out = scan(u, delta, -torch.exp(A_log), B, C, D, z=z,
+                   delta_bias=dt_bias, delta_softplus=True)
+        (out * torch.linspace(0.1, 1.0, out.numel(), device="cuda").reshape(out.shape)).sum().backward()
+        outs.append(out.detach())
+        grads.append([a.grad.detach() for a in (u, delta, A_log, B, C, D, z, dt_bias)])
+
+    _assert_close(f"{name} forward", outs[0], outs[1], 1e-5)
+    for i, (g_ref, g_cuda) in enumerate(zip(*grads)):
+        _assert_close(f"{name} grad[{i}]", g_ref, g_cuda, 1e-4)
+
+
+# --------------------------------------------------------------------------
+# 3. the module and the whole network
+# --------------------------------------------------------------------------
+
+def _both_mambas(d_model, seed=0):
+    """One mamba_ssm.Mamba and one MambaRef, built from the same RNG state."""
+    from mamba_ssm import Mamba
+
+    built = []
+    for cls in (Mamba, MambaRef):
+        torch.manual_seed(seed)
+        built.append(cls(d_model=d_model, d_state=D_STATE, d_conv=4, expand=2))
+    return built
+
+
+@pytest.mark.parametrize("name,seqlen,d_inner", LAYERS, ids=[l[0] for l in LAYERS])
+def test_module_init_matches_reference(name, seqlen, d_inner):
+    """Same seed, same weights -- bit for bit.
+
+    This is what makes the two interchangeable at all. Both classes draw from the
+    global RNG in the same order (four nn.Linear/nn.Conv1d inits, then dt_proj's
+    uniform_, then the dt/inv_dt exponential draw), so a single differing draw
+    anywhere would show up here as a mismatched tensor.
+    """
+    pytest.importorskip("mamba_ssm")
+    ssm, ref = _both_mambas(d_model=d_inner // 2)
+
+    assert ssm.state_dict().keys() == ref.state_dict().keys(), name
+    for k, v in ssm.state_dict().items():
+        assert torch.equal(v, ref.state_dict()[k]), f"{name}: {k} differs"
+
+
+@pytest.mark.parametrize("name,seqlen,d_inner", LAYERS, ids=[l[0] for l in LAYERS])
+def test_module_param_count(name, seqlen, d_inner):
+    """Per-layer parameter counts, from first principles rather than by comparison."""
+    pytest.importorskip("mamba_ssm")
+    from mamba_ssm import Mamba
+
+    d_model = d_inner // 2
+    m = Mamba(d_model=d_model, d_state=D_STATE, d_conv=4, expand=2)
+
+    assert m.dt_rank == math.ceil(d_model / 16) == 1, name
+    assert m.d_inner == d_inner, name
+
+    expected = (
+        d_model * d_inner * 2                       # in_proj (bias=False)
+        + d_inner * 4 + d_inner                      # conv1d weight + bias
+        + d_inner * (m.dt_rank + 2 * D_STATE)        # x_proj (bias=False)
+        + m.dt_rank * d_inner + d_inner              # dt_proj weight + bias
+        + d_inner * D_STATE                          # A_log
+        + d_inner                                    # D
+        + d_inner * d_model                          # out_proj (bias=False)
+    )
+    assert sum(p.numel() for p in m.parameters()) == expected, name
+
+
+@cuda_only
+@pytest.mark.parametrize("name,seqlen,d_inner", LAYERS, ids=[l[0] for l in LAYERS])
+def test_module_forward_and_grads_match(name, seqlen, d_inner):
+    """The full Mamba block: fused kernel vs oracle, on identical weights."""
+    d_model = d_inner // 2
+    ssm, ref = _both_mambas(d_model)
+    ssm, ref = ssm.cuda(), ref.cuda()
+
+    torch.manual_seed(1)
+    x = torch.randn(BATCH, seqlen, d_model, device="cuda")
+
+    outs, grads = [], []
+    for m in (ref, ssm):  # oracle first, so it is the reference in _assert_close
+        m.zero_grad()
+        out = m(x.clone())
+        (out * torch.linspace(0.1, 1.0, out.numel(), device="cuda").reshape(out.shape)).sum().backward()
+        outs.append(out.detach())
+        grads.append({n: p.grad.detach().clone() for n, p in m.named_parameters()})
+
+    _assert_close(f"{name} forward", outs[0], outs[1], 1e-5)
+    for n in grads[0]:
+        _assert_close(f"{name} grad {n}", grads[0][n], grads[1][n], 1e-4)
+
+
+def _build_model(mamba_cls, seed=42):
+    """UltraLight_VM_UNet with PVMLayer's Mamba swapped for mamba_cls.
+
+    PVMLayer looks the class up as a module global at construction time, so this
+    patch is enough to build the identical network on either backend.
+    """
+    original = model_module.Mamba
+    model_module.Mamba = mamba_cls
+    try:
+        torch.manual_seed(seed)
+        return model_module.UltraLight_VM_UNet()
+    finally:
+        model_module.Mamba = original
+
+
+def test_model_init_identical_across_backends():
+    """Switching backend must not perturb a single initial weight.
+
+    UltraLight_VM_UNet.__init__ ends with self.apply(self._init_weights), which
+    reinitialises every nn.Linear and nn.Conv1d in the model -- including the ones
+    inside Mamba, and including dt_proj.bias, whose _no_reinit marker it does not
+    check. That only lands on the same tensors if the vendored module keeps the
+    same submodule names and types, so this asserts the whole 49,457-parameter
+    state_dict, not just the Mamba blocks.
+    """
+    pytest.importorskip("mamba_ssm")
+    from mamba_ssm import Mamba
+
+    ssm = _build_model(Mamba).state_dict()
+    ref = _build_model(MambaRef).state_dict()
+
+    assert ssm.keys() == ref.keys()
+    assert sum(v.numel() for v in ssm.values()) == 49457
+    for k, v in ssm.items():
+        assert torch.equal(v, ref[k]), f"{k} differs"
+
+
+@cuda_only
+def test_model_forward_matches_reference_backend():
+    """End to end: the network's output must not depend on which scan ran.
+
+    Looser than the per-layer bounds above, for the same reason as in
+    tests/test_pvm_batching.py: fp32 rounding accumulates through six PVM layers,
+    the bridge and five interpolations. Measured, the two backends land within
+    2e-7 of each other on average and 2e-4 at the worst of 131k output pixels.
+
+    The assertion that carries the weight is the second one. The output is a
+    probability thresholded at 0.5 to make a prediction, so what matters is
+    whether any pixel changes class -- and none does, which makes the two
+    backends interchangeable in the only sense the metrics can see.
+    """
+    from mamba_ssm import Mamba
+
+    ssm = _build_model(Mamba).cuda().eval()
+    ref = _build_model(MambaRef).cuda().eval()
+
+    torch.manual_seed(2)
+    x = torch.randn(2, 3, 256, 256, device="cuda")
+    with torch.no_grad():
+        got, want = ssm(x), ref(x)
+
+    _assert_close("model forward", want, got, 1e-3)
+    flipped = ((got >= 0.5) != (want >= 0.5)).sum().item()
+    assert flipped == 0, f"{flipped} pixels changed segmentation class"

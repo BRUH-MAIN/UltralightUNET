@@ -229,12 +229,28 @@ data_hf_tmp/
 #   * `results/` alone would exclude the directory itself, and git does not
 #     descend into an excluded directory -- so the negation could never match.
 #     Excluding `results/*` instead leaves the directory visible.
-#   * a leading `**/` is required to reach blackwell/results/ as well; a pattern
-#     containing a slash is otherwise anchored to this file's directory, which
-#     would have let 600 prediction PNGs into the repo.
+#   * a leading `**/` anchors the pattern at every depth rather than just this
+#     file's directory, so it still reaches a nested results/ dir under e.g.
+#     kaggle/ or any future subproject -- without it only a top-level results/
+#     would match, and 600 prediction PNGs from a nested one would slip in.
 **/results/*
 !**/results/COMPARISON.md
 *.pth
 
 # Kaggle run exports (notebooks with outputs, zipped results)
 kaggle_runs/
+
+# Claude Code session state (this is tool state, not project content -- keep
+# it out of a shared repo so a teammate's local session isn't committed).
+.claude/
+
+# LaTeX build artifacts (ppt.tex)
+*.aux
+*.nav
+*.snm
+*.toc
+*.out
+*.synctex.gz
+*.fdb_latexmk
+*.fls
+*.vrb

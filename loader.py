@@ -1,15 +1,9 @@
-from torch.utils.data import Dataset, DataLoader
-import torch
-import numpy as np
 import random
-import os
-from PIL import Image
-from einops.layers.torch import Rearrange
-from scipy.ndimage import binary_dilation  # PATCH: scipy.ndimage.morphology removed in SciPy >=1.15
-from torch.utils.data import Dataset
-from torchvision import transforms
+
+import numpy as np
+import torch
 from scipy import ndimage
-from utils import *
+from torch.utils.data import Dataset
 
 
 # ===== normalize over the dataset
@@ -18,7 +12,8 @@ def dataset_normalized(imgs):
     # (the train split is 1250x256x256x3; float64 would be ~2 GB, and this box has 16 GB).
     # engine.py casts to .float() on the GPU anyway, so nothing downstream changes.
     imgs = imgs.astype(np.float32)
-    imgs_normalized = np.empty(imgs.shape, dtype=np.float32)
+    # upstream allocated an empty array here and immediately rebound the name; the
+    # allocation was never read.
     imgs_std = np.std(imgs)
     imgs_mean = np.mean(imgs)
     imgs_normalized = (imgs-imgs_mean)/imgs_std

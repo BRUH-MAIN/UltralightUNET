@@ -1,7 +1,8 @@
 # Running the training on Kaggle (2 × T4)
 
-The local RTX 3050 is for script development, tests, and smoke runs. The 250-epoch runs happen
-here.
+Optional second machine. Everything here also runs locally — see the root
+[README](../README.md) — but a Kaggle session gives you two more GPUs to run experiments on in
+parallel.
 
 ## Use the notebook
 
@@ -20,16 +21,28 @@ The cells: hardware check → clone + deps → pull data → **sanity checks** �
 benchmark → train → zip results.
 
 Do not skip the sanity-check cell. It costs seconds and asserts the parameter count is exactly
-49,457 plus 19/19 equivalence tests, on *Kaggle's* torch build rather than the dev machine's.
-That is where a version-drift failure surfaces, instead of hours into a run.
+49,457 plus the full kernel-vs-oracle equivalence suite, on *Kaggle's* torch build rather than the
+dev machine's. That is where a version-drift failure surfaces, instead of hours into a run.
+
+## The two CUDA extensions
+
+`mamba_ssm` and `causal_conv1d` are not in the Kaggle image. The bootstrap cell runs
+`scripts/install_mamba.py`, which picks the prebuilt wheel matching the image's torch, python and
+CUDA major. The T4 is **sm_75**, which every cu12 wheel covers natively — the Blackwell caveat in
+the root README does not apply here.
+
+The one thing that can go wrong is Kaggle moving to a torch minor the mamba release matrix does not
+cover yet. The script says so explicitly rather than installing something that will not import; the
+fallback is to pin torch first, or to compile with `scripts/build_mamba.py` (tens of minutes).
 
 ## Measured cost
 
-Run 1: **1.64 h** for 250 epochs on a single T4, ~23 s/epoch (train 17 s, val 6 s).
+Run 1: **1.64 h** for 250 epochs on a single T4, ~23 s/epoch (train 17 s, val 6 s) — measured with
+the pure-PyTorch scan, before the migration to `mamba_ssm`. The fused kernel should be no slower.
 
-This workload is bound by **CPU kernel-launch overhead**, not GPU throughput — the selective scan
-issues ~176 sequential launches per forward regardless of batch size, and the model is only
-0.049 M parameters. Two consequences worth knowing:
+This workload is bound by **CPU launch overhead**, not GPU throughput — the network is a long chain
+of individually tiny operations and the model is only 0.049 M parameters. Two consequences worth
+knowing:
 
 - A batch of 8 uses **under 1 GB of the T4's 15 GB**. That is expected; VRAM is not the limiting
   resource. `scripts/bench_batch.py` (cell 5) measures where throughput actually peaks on the

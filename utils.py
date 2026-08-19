@@ -1,8 +1,6 @@
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 import torch.backends.cudnn as cudnn
-import torchvision.transforms.functional as TF
 import numpy as np
 import os
 import math
@@ -151,13 +149,9 @@ def get_optimizer(config, model):
             dampening = config.dampening,
             nesterov = config.nesterov
         )
-    else: # default opt is SGD
-        return torch.optim.SGD(
-            model.parameters(),
-            lr = 0.01,
-            momentum = 0.9,
-            weight_decay = 0.05,
-        )
+    # PATCH: upstream ends with an `else` returning a default SGD. The assert above
+    # already restricts config.opt to the nine names, and all nine have a branch,
+    # so that fallback was unreachable.
 
 
 
@@ -301,15 +295,88 @@ class BceDiceLoss(nn.Module):
         return loss
 
 
+import copy
+
 from thop import profile		 ## 导入thop模块
 def cal_params_flops(model, size, logger):
-    input = torch.randn(1, 3, size, size).cuda()
-    flops, params = profile(model, inputs=(input,))
+    # PATCH: profile a deep copy, never the live model.
+    #
+    # thop.profile registers total_ops / total_params BUFFERS on every submodule
+    # and does not remove them. Those buffers then land in model.state_dict(), so
+    # every checkpoint carries ~70 extra keys. train.py's own final evaluation
+    # survives that because it reloads into the same profiled model object -- but
+    # loading such a checkpoint into a fresh model, which is exactly what test.py
+    # does, dies with "Unexpected key(s) in state_dict: total_ops, ...".
+    #
+    # Profiling a copy keeps checkpoints clean. test.py additionally strips these
+    # keys on load, so checkpoints produced before this fix still work.
+    flops, params = profile(copy.deepcopy(model),
+                            inputs=(torch.randn(1, 3, size, size).cuda(),),
+                            verbose=False)
     print('flops',flops/1e9)			## 打印计算量
     print('params',params/1e6)			## 打印参数量
 
     total = sum(p.numel() for p in model.parameters())
     print("Total params: %.3fM" % (total/1e6))
     logger.info(f'flops: {flops/1e9}, params: {params/1e6}, Total params: : {total/1e6:.4f}')
-        
-        
+
+
+def check_environment(logger):
+    """PATCH: fail now, not 20 minutes in, if this box cannot run these kernels.
+
+    Two ways that happens, both surfacing as the same opaque "no kernel image is
+    available for execution on the device":
+
+      * a torch build with no cubin for this GPU. torch 2.0.1+cu117 stops at
+        sm_86 and embeds only compute_37 PTX, so it cannot execute on Blackwell
+        (sm_120) at all.
+      * a mamba_ssm built for older architectures only. Its setup.py emits
+        sm_120 cubins solely when the build ran against CUDA >= 12.8, which the
+        1.0.1 the paper pins predates entirely -- and no version of it emits
+        forward-compatible PTX, so there is nothing for the driver to JIT.
+
+    Both are checked by executing a real kernel rather than by reading version
+    strings, the mamba one at the smallest shape the model actually uses
+    (d_model=6, the encoder4 branch width) and through the backward pass, since
+    forward and backward are separate kernels.
+    """
+    assert torch.cuda.is_available(), 'no CUDA device visible'
+    cc = torch.cuda.get_device_capability(0)
+    arch = f'sm_{cc[0]}{cc[1]}'
+    log_info = (f'device: {torch.cuda.get_device_name(0)} ({arch}), '
+                f'torch {torch.__version__}, built for {torch.cuda.get_arch_list()}')
+    print(log_info)
+    logger.info(log_info)
+    try:
+        (torch.zeros(8, 8, device='cuda') @ torch.zeros(8, 8, device='cuda')).cpu()
+    except RuntimeError as e:
+        raise SystemExit(
+            f'torch {torch.__version__} cannot execute on {arch}.\n'
+            f'It was built for {torch.cuda.get_arch_list()}.\n'
+            f'Blackwell (sm_120) needs torch >= 2.7 with CUDA >= 12.8:\n'
+            f'  pip install torch torchvision '
+            f'--index-url https://download.pytorch.org/whl/cu129\n'
+            f'original error: {e}')
+
+    from mamba_ssm import Mamba
+    from mamba_ssm.modules import mamba_simple
+    from models.UltraLight_VM_UNet import MAMBA_BACKEND
+
+    fused = ('mamba_inner_fn (causal_conv1d present)'
+             if mamba_simple.causal_conv1d_fn is not None
+             else 'selective_scan_fn only (causal_conv1d MISSING)')
+    log_info = f'mamba backend: {MAMBA_BACKEND}, fused path: {fused}'
+    print(log_info)
+    logger.info(log_info)
+
+    try:
+        Mamba(d_model=6, d_state=16, d_conv=4, expand=2).cuda()(
+            torch.randn(1, 64, 6, device='cuda')).sum().backward()
+    except RuntimeError as e:
+        raise SystemExit(
+            f'{MAMBA_BACKEND} cannot execute on {arch}.\n'
+            f'The wheel has no cubin for this architecture, and mamba_ssm ships no\n'
+            f'forward-compatible PTX. Install one built against CUDA >= 12.8, or\n'
+            f'build from source with a CUDA >= 12.8 toolkit -- see requirements.txt.\n'
+            f'original error: {e}')
+

@@ -1,25 +1,39 @@
 """UltraLight VM-UNet.
 
 Transcribed verbatim from https://github.com/wurenkai/UltraLight-VM-UNet
-(models/UltraLight_VM_UNet.py). The only change is the source of ``Mamba``.
+(models/UltraLight_VM_UNet.py), including the ``from mamba_ssm import Mamba``
+that upstream uses. The selective scan therefore runs as the same fused CUDA
+kernel the paper's numbers were produced with.
 
-``mamba_ssm`` is deliberately NOT imported, even when it is available. This
-project debugs on a Windows box (where it does not build at all) and trains on
-Kaggle Linux (where it would), and a silent per-machine backend switch would mean
-the code you debug is not the code that produces the numbers. One backend
-everywhere. See models/mamba_pytorch.py for why that is cheap here.
+``mamba_ssm`` is a hard requirement: there is no automatic fallback. A silent
+per-machine backend switch would mean the code being debugged is not the code
+producing the numbers. ``models/mamba_pytorch.py`` still holds the pure-PyTorch
+reimplementation, but only as the oracle ``tests/`` checks this kernel against.
+
+On the version. The paper pins ``mamba_ssm==1.0.1``, which predates Blackwell:
+its setup.py emits cubins for sm_70/80/90 only, with no forward-compatible PTX,
+so it cannot execute on an RTX 5060 (sm_120) whatever it is compiled against.
+2.3.2.post1 is used instead. ``mamba_ssm/modules/mamba_simple.py`` -- the file
+this imports -- is unchanged between the two releases apart from import guards,
+keyword-vs-positional arguments into ``causal_conv1d_fn``, and a ``conv_state``
+padding fix on the inference path this model never takes. The training-path
+arithmetic is identical; see README.md, which reproduces the diff.
 """
 
 import torch
 from torch import nn
 import torch.nn.functional as F
 
-from timm.models.layers import trunc_normal_
+try:  # timm >= 0.9
+    from timm.layers import trunc_normal_
+except ImportError:  # timm < 0.9, where timm.layers is not yet the canonical path
+    from timm.models.layers import trunc_normal_
 import math
 
-from models.mamba_pytorch import Mamba
+import mamba_ssm
+from mamba_ssm import Mamba
 
-MAMBA_BACKEND = "mamba_pytorch"
+MAMBA_BACKEND = f"mamba_ssm {mamba_ssm.__version__}"
 
 
 class PVMLayer(nn.Module):

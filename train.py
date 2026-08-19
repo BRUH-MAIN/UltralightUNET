@@ -1,13 +1,30 @@
+"""Train UltraLight VM-UNet.
+
+Differences from upstream's train.py, none of which change the result:
+  * no DataParallel wrapper (see the comment where the model is built)
+  * torch.load(..., weights_only=False) on the resume path. torch >= 2.6 flipped
+    the default to True, which REJECTS this checkpoint: min_loss/loss are
+    np.float64 (engine.py returns np.mean(...)), and numpy scalars are not in the
+    default allowlist. Verified: loading such a checkpoint with weights_only=True
+    raises UnpicklingError. These are our own files, so full unpickling is safe.
+  * val/test batch size come from the config instead of being hardcoded to 1,
+    with an assertion that they divide the split exactly -- the loaders use
+    drop_last=True, so a non-divisor silently discards images.
+  * a preflight that fails loudly when torch or the mamba_ssm kernel has no cubin
+    for this GPU, rather than 20 minutes into a run.
+
+No change to the model, the optimiser, the schedule, or any hyperparameter that
+affects the result.
+"""
+
 import torch
-from torch import nn
-from torch.cuda.amp import autocast, GradScaler
+from torch.cuda.amp import GradScaler
 from torch.utils.data import DataLoader
 from loader import *
 
 from models.UltraLight_VM_UNet import UltraLight_VM_UNet
 from engine import *
 import os
-import sys
 os.environ["CUDA_VISIBLE_DEVICES"] = "0" # "0, 1, 2, 3"
 
 from utils import *
@@ -20,7 +37,6 @@ warnings.filterwarnings("ignore")
 def main(config):
 
     print('#----------Creating logger----------#')
-    sys.path.append(config.work_dir + '/')
     log_dir = os.path.join(config.work_dir, 'log')
     checkpoint_dir = os.path.join(config.work_dir, 'checkpoints')
     resume_model = os.path.join(checkpoint_dir, 'latest.pth')
@@ -30,7 +46,6 @@ def main(config):
     if not os.path.exists(outputs):
         os.makedirs(outputs)
 
-    global logger
     logger = get_logger('train', log_dir)
 
     log_config_info(config, logger)
@@ -41,8 +56,9 @@ def main(config):
 
     print('#----------GPU init----------#')
     set_seed(config.seed)
-    gpu_ids = [0]# [0, 1, 2, 3]
     torch.cuda.empty_cache()
+
+    check_environment(logger)
 
 
 
@@ -56,15 +72,24 @@ def main(config):
                                 pin_memory=True,
                                 num_workers=config.num_workers)
     val_dataset = isic_loader(path_Data = config.data_path, train = False)
+    # drop_last=True means a batch size that does not divide the split silently
+    # discards the remainder. Fail instead of quietly evaluating fewer images.
+    assert len(val_dataset) % config.val_batch_size == 0, (
+        f'val_batch_size={config.val_batch_size} does not divide '
+        f'{len(val_dataset)} val images; drop_last=True would discard '
+        f'{len(val_dataset) % config.val_batch_size} of them')
     val_loader = DataLoader(val_dataset,
-                                batch_size=1,
+                                batch_size=config.val_batch_size,
                                 shuffle=False,
                                 pin_memory=True, 
                                 num_workers=config.num_workers,
                                 drop_last=True)
     test_dataset = isic_loader(path_Data = config.data_path, train = False, Test = True)
+    assert len(test_dataset) % config.test_batch_size == 0, (
+        f'test_batch_size={config.test_batch_size} does not divide '
+        f'{len(test_dataset)} test images')
     test_loader = DataLoader(test_dataset,
-                                batch_size=1,
+                                batch_size=config.test_batch_size,
                                 shuffle=False,
                                 pin_memory=True, 
                                 num_workers=config.num_workers,
@@ -91,10 +116,6 @@ def main(config):
     # DataParallel adds to rather than removes.
     model = model.cuda()
 
-    from models.UltraLight_VM_UNet import MAMBA_BACKEND
-    log_info = f'mamba backend: {MAMBA_BACKEND}, device: {torch.cuda.get_device_name(0)}'
-    print(log_info)
-    logger.info(log_info)
     cal_params_flops(model, 256, logger)
 
 
@@ -123,7 +144,10 @@ def main(config):
 
     if os.path.exists(resume_model):
         print('#----------Resume Model and Other params----------#')
-        checkpoint = torch.load(resume_model, map_location=torch.device('cpu'))
+        # weights_only=False: torch >= 2.6 defaults to True, which rejects the
+        # np.float64 min_loss/loss in this checkpoint. Our own file, so safe.
+        checkpoint = torch.load(resume_model, map_location=torch.device('cpu'),
+                                weights_only=False)
         model.load_state_dict(checkpoint['model_state_dict'])
         optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
         scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
@@ -183,7 +207,8 @@ def main(config):
 
     if os.path.exists(os.path.join(checkpoint_dir, 'best.pth')):
         print('#----------Testing----------#')
-        best_weight = torch.load(config.work_dir + 'checkpoints/best.pth', map_location=torch.device('cpu'))
+        best_weight = torch.load(os.path.join(checkpoint_dir, 'best.pth'),
+                                 map_location=torch.device('cpu'), weights_only=False)
         model.load_state_dict(best_weight)
         loss = test_one_epoch(
                 test_loader,

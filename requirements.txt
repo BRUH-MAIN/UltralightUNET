@@ -1,25 +1,50 @@
-# UltraLight VM-UNet replication -- Windows / RTX 3050 (4 GB VRAM)
+# UltraLight VM-UNet replication -- Linux, NVIDIA Blackwell (RTX 50-series, sm_120)
 #
-# Install torch first, from the cu117 index:
-#   uv pip install torch==2.0.1+cu117 torchvision==0.15.2+cu117 \
-#       --index-url https://download.pytorch.org/whl/cu117
-# then:
-#   uv pip install -r requirements.txt
+# Install in three steps; the order matters, because the mamba wheels are chosen
+# by reading the installed torch.
 #
-# NOTE: mamba_ssm / causal_conv1d / triton are deliberately NOT listed.
-# They have no working Windows build for this interpreter; models/mamba_pytorch.py
-# is a pure-PyTorch replacement. See README.md.
+#   1. torch, from a CUDA 12.9 index:
+#        pip install torch==2.10.0 torchvision==0.25.0 \
+#            --index-url https://download.pytorch.org/whl/cu129
+#
+#      Blackwell needs torch >= 2.7 built with CUDA >= 12.8; 2.7.0 was the first
+#      stable release shipping sm_120 kernels. 2.10.0 is pinned because the
+#      mamba_ssm project publishes prebuilt wheels per torch minor, and 2.10 is
+#      the newest it covers -- torch 2.11+ would mean compiling from source.
+#
+#   2. the two CUDA extensions the paper uses (mamba_ssm, causal_conv1d):
+#        python scripts/install_mamba.py
+#
+#      PyPI has sdists only for these. That script installs the matching
+#      prebuilt wheels from the projects' GitHub releases instead; see its
+#      docstring for the naming scheme and the Blackwell caveat.
+#
+#   3. this file:
+#        pip install -r requirements.txt
+#
+# torch/torchvision/mamba_ssm/causal_conv1d are deliberately NOT listed below:
+# each needs an index or a URL that a bare requirements line cannot express, and
+# listing them here invites a resolver to replace a working CUDA build with a
+# CPU one from PyPI.
+#
+# numpy is left loose (>= 1.26) because modern torch builds ship against numpy
+# 2.x. Nothing here is numerically sensitive to it -- numpy only does the dataset
+# mean/std and the sklearn confusion matrix; all training arithmetic is torch.
 
-timm==0.4.12
-einops==0.8.0
-numpy==1.26.4
-pillow==10.4.0
-scipy==1.14.1
-scikit-learn==1.5.2
-matplotlib==3.9.2
-tqdm==4.66.5
-thop==0.1.1.post2209072238
-tensorboardX==2.6.2.2
-yacs==0.1.8
-pytest==8.3.3
-huggingface_hub==0.26.2
+timm>=1.0.0
+einops>=0.8.0
+# mamba_ssm's package __init__ imports MambaLMHeadModel, which imports
+# transformers -- so `from mamba_ssm import Mamba` needs it even though nothing in
+# this model does. Both install scripts pass --no-deps (a dependency resolver let
+# loose near a hand-installed CUDA torch is a hazard), so it is listed here.
+transformers>=4.40
+numpy>=1.26
+pillow>=10.0
+scipy>=1.14
+scikit-learn>=1.5
+matplotlib>=3.9
+tqdm>=4.66
+thop>=0.1.1
+pytest>=8.0
+huggingface_hub>=0.26
+ipykernel>=6.29

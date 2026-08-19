@@ -1,23 +1,23 @@
 """
-Pure-PyTorch replacement for ``mamba_ssm.modules.mamba_simple.Mamba`` (v1.0.1).
+Pure-PyTorch reimplementation of ``mamba_ssm.modules.mamba_simple.Mamba``.
 
 Why this exists
 ---------------
-The reference implementation of UltraLight VM-UNet depends on ``mamba_ssm==1.0.1``
-and ``causal_conv1d==1.0.0``. Both are CUDA extensions with Linux-only official
-support, and ``mamba_ssm/ops/selective_scan_interface.py`` performs a top-level
-``import selective_scan_cuda`` -- so on Windows the package cannot even be
-imported, let alone run.
+This is the **oracle**, not the production path. The model imports ``Mamba`` from
+``mamba_ssm`` and runs the fused CUDA kernel, exactly as upstream and the paper
+do. What this module buys is an independent implementation to check that kernel
+against, in ``tests/test_mamba_equivalence.py``: same parameterisation, same
+initialisation stream, same arithmetic to floating-point tolerance, forward and
+backward. A fused kernel that silently computed something else would otherwise be
+invisible -- there would be nothing to compare it to.
 
-This module reimplements the same computation in plain PyTorch. It is not an
-approximation: ``selective_scan_ref`` below is a transcription of the reference
-scan that ships with the official Mamba repository (the same function its CUDA
-kernel is tested against), and ``selective_scan_chunked`` is that identical
-recurrence with the sequential product reassociated over chunks.
+It is not an approximation. ``selective_scan_ref`` below is a transcription of
+the reference scan that ships with the official Mamba repository (the same
+function its CUDA kernel is tested against), and ``selective_scan_chunked`` is
+that identical recurrence with the sequential product reassociated over chunks.
 
-The fused kernel exists to make ``d_inner`` in the thousands tractable. In
-UltraLight VM-UNet the six PVM layers run at d_inner = 12..32 over sequences of
-at most 1024 tokens, so there is very little for it to accelerate.
+It is also the only way to run this model without a CUDA device, ``mamba_ssm``
+being GPU-only. Nothing in the training path imports it.
 
 Fidelity requirement
 --------------------

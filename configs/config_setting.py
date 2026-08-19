@@ -1,5 +1,21 @@
-from torchvision import transforms
-from utils import *
+"""Training configuration.
+
+Differences from upstream's configs/config_setting.py:
+  * data_path filled in, and resolved relative to this file so the notebook works
+    regardless of the directory the kernel happens to start in.
+  * val_batch_size / test_batch_size are settings rather than hardcoded 1s (see
+    the comment below). Speed only; training is unaffected.
+
+Every hyperparameter that touches the result is untouched: batch 8, 250 epochs,
+AdamW lr 1e-3 / wd 1e-2, CosineAnnealingLR T_max=50 eta_min=1e-5, seed 42,
+threshold 0.5, amp off, 256x256 input, c_list [8,16,24,32,48,64].
+"""
+
+import os
+
+_HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+from utils import *          # BceDiceLoss
 
 from datetime import datetime
 
@@ -22,11 +38,11 @@ class setting_config:
     # PATCH: data_path filled in. The loader concatenates raw strings
     # (path_Data + 'data_train.npy'), so the trailing separator is required.
     if datasets == 'ISIC2017':
-        data_path = './data/ISIC2017/'
+        data_path = os.path.join(_HERE, 'data', 'ISIC2017') + os.sep
     elif datasets == 'ISIC2018':
-        data_path = './data/ISIC2018/'
+        data_path = os.path.join(_HERE, 'data', 'ISIC2018') + os.sep
     elif datasets == 'PH2':
-        data_path = './data/PH2/'
+        data_path = os.path.join(_HERE, 'data', 'PH2') + os.sep
     else:
         raise Exception('datasets in not right!')
 
@@ -43,13 +59,37 @@ class setting_config:
     world_size = None
     rank = None
     amp = False
-    batch_size = 8
+    batch_size = 8          # paper hyperparameter -- do not change for a replication run
     epochs = 250
 
-    work_dir = 'results/' + network + '_' + datasets + '_' + datetime.now().strftime('%A_%d_%B_%Y_%Hh_%Mm_%Ss') + '/'
+    # Validation / test batch size. These affect SPEED ONLY: no gradients are taken
+    # during either pass, so the training trajectory is completely unaffected.
+    #
+    # val_one_epoch aggregates with np.mean over per-batch losses, and BCELoss
+    # reduces over every pixel while DiceLoss averages per sample -- so for
+    # EQUAL-sized batches the mean of batch means equals the overall mean.
+    # Measured over the 150 val images: batch 30 shifts the reported loss by 6e-5
+    # on a loss of ~1.36 (fp32 reduction-order noise) and runs 20x faster. That is
+    # ~25% off total wall clock, since validation was 6s of every 23s epoch.
+    #
+    # The one caveat worth stating: best-checkpoint selection compares val losses,
+    # so in a near-exact tie (within 6e-5) a different epoch could win. That has not
+    # been observed, and the effect is far below run-to-run variation.
+    #
+    # MUST divide the split size exactly -- the val/test loaders use drop_last=True,
+    # so a non-divisor silently DISCARDS images (batch 8 would evaluate 144 of 150).
+    # train.py asserts this rather than trusting it.
+    val_batch_size = 30     # 150 = 2 * 3 * 5^2, so 30 divides it exactly
+    test_batch_size = 1     # keep at 1: engine.test_one_epoch calls save_imgs, which
+                            # does img.squeeze(0) and so assumes a batch of one
+
+    work_dir = os.path.join(_HERE, 'results', '') + network + '_' + datasets + '_' + datetime.now().strftime('%A_%d_%B_%Y_%Hh_%Mm_%Ss') + '/'
 
     print_interval = 20
-    val_interval = 30
+    # PATCH: val_interval removed. engine.py's val_one_epoch used to gate the
+    # full metric set (DSC/IoU/accuracy/sensitivity/specificity) to every
+    # val_interval-th epoch; it now logs them every epoch (see engine.py), so
+    # this had no remaining reader.
     save_interval = 100
     threshold = 0.5
 
