@@ -20,6 +20,7 @@ Prec 0.9481, at 0.049 M params / 0.060 GFLOPs.
 | equivalence tests | — | 44/44 pass | kernel vs. reference scan: init bit-exact, fwd/grads to fp32 tolerance |
 | ISIC2017 DSC | 0.9091 | **0.9026** | **−0.0065 — replicated** |
 | ISIC2018 DSC | 0.8940 | **0.8911** | **−0.0029 — replicated** |
+| PH2 DSC | 0.9265 | **0.9312** | **+0.0047 — replicated** (40-image test set, see caveat below) |
 | HAM10000 DSC | — (not in paper) | **0.9331** | generalization beyond the paper's evaluation set |
 | 250-epoch run | — | 22.9 min (ISIC2017) | RTX 5060, 5.2 s/epoch |
 
@@ -39,12 +40,13 @@ gave train/val/test lesion areas of 22.9% / 8.0% / 15.0%, since ISIC IDs correla
 source); a seeded permutation fixed the balance to 20.0% / 17.6% / 18.6% and recovered +0.0348 DSC.
 Full analysis in [results/COMPARISON.md](results/COMPARISON.md).
 
-**ISIC2018 and HAM10000.** The same architecture and recipe also replicate the paper's ISIC2018
-result (0.29% DSC gap, tighter than ISIC2017's) and generalize to HAM10000 — a dataset the paper
-never evaluates on — at DSC 0.9331, the highest of the three. ISIC2018 shows notably higher
-per-image variance (std 0.1380 vs HAM10000's 0.0897) and more low-Dice outliers; see the
-[cross-dataset summary](results/COMPARISON.md#cross-dataset-summary) for details and per-image
-breakdowns.
+**ISIC2018, PH2, and HAM10000.** The same architecture and recipe also replicate the paper's
+ISIC2018 (0.29% DSC gap) and PH2 (+0.47%, though PH2's test set is only 40 images — see the caveat
+in COMPARISON.md) results, completing all three of the paper's benchmark datasets, and generalize to
+HAM10000 — a dataset the paper never evaluates on — at DSC 0.9331, the highest of the four.
+ISIC2018 shows notably higher per-image variance (std 0.1380) and more low-Dice outliers than the
+other three; see the [cross-dataset summary](results/COMPARISON.md#cross-dataset-summary) for
+details and per-image breakdowns.
 
 > **On GFLOPs.** thop reads **0.0602** against the paper's 0.060 — three decimals, straight off the
 > measurement, and for a reason worth stating explicitly. thop can only count operations that pass

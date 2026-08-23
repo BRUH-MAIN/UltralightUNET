@@ -34,7 +34,7 @@ class setting_config:
 
     test_weights = ''
 
-    datasets = 'HAM10000'
+    datasets = 'PH2'
     # PATCH: data_path filled in. The loader concatenates raw strings
     # (path_Data + 'data_train.npy'), so the trailing separator is required.
     if datasets == 'ISIC2017':
@@ -88,11 +88,12 @@ class setting_config:
     #            167 is prime -- 6 batches, same "large divisor, few batches"
     #            convention as the other two). Pair count/split size printed by
     #            Prepare_HAM10000.py at prep time; update this if that changes.
+    #   PH2        20  val = 2^2 * 5      -> 10 (largest non-trivial divisor, 2 batches)
     _VAL_BATCH_SIZE = {
         'ISIC2017': 30,
         'ISIC2018': 37,
         'HAM10000': 167,
-        'PH2': 1,
+        'PH2': 10,
     }
     val_batch_size = _VAL_BATCH_SIZE[datasets]
     test_batch_size = 1     # keep at 1: engine.test_one_epoch calls save_imgs, which

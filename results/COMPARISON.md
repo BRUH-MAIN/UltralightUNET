@@ -1,13 +1,14 @@
-# Replication results vs. the paper — ISIC2017, ISIC2018, HAM10000
+# Replication results vs. the paper — ISIC2017, ISIC2018, PH2, HAM10000
 
 Reference: Table 1 of Wu et al., *Patterns* 6, 101298 (2025) — the paper's ISIC2017, ISIC2018 and
-PH2 blocks. HAM10000 is not one of the paper's three benchmark datasets; it's covered in its own
-section below as an extension beyond the paper's evaluation set.
+PH2 blocks, all three now replicated. HAM10000 is not one of the paper's three benchmark datasets;
+it's covered in its own section below as an extension beyond the paper's evaluation set.
 
 - [ISIC2017](#isic2017) — the main replication saga (3 runs, split-bias diagnosis and fix)
 - [ISIC2018](#isic2018--replication-successful) — second independent replication, clean run
+- [PH2](#ph2--replication-successful-small-test-set-caveat) — third and final paper dataset, tiny test set
 - [HAM10000](#ham10000--generalization-beyond-the-papers-evaluation-set) — no paper target; tests generalization
-- [Cross-dataset summary](#cross-dataset-summary) — all three side by side
+- [Cross-dataset summary](#cross-dataset-summary) — all four side by side
 - [Reproducing](#reproducing)
 
 ## ISIC2017
@@ -278,19 +279,58 @@ Over the 2,003 test images: mean DSC 0.9328, std **0.0897** — the tightest of 
 17 images (0.8%) score below 0.5 DSC, 56 (2.8%) below 0.7. Worst cases: test image 1761 (0.0000 —
 a full miss), 1573 (0.1769), 971 (0.1791), 192 (0.2156), 1019 (0.2208).
 
+## PH2 — replication successful (small-test-set caveat)
+
+250 epochs, RTX 5060 Laptop GPU (sm_120), torch 2.13.0+cu130, `mamba_ssm` 2.3.2.post1 fused kernel,
+seeded split, 2026-08-23. Best val loss 0.1752 @ epoch 120. Wall clock ~3m17s — by far the shortest
+run, since PH2 has only 140 train images (a ~14x smaller train set than ISIC2017/2018 and ~50x
+smaller than HAM10000). Downloaded via the [Kaggle PH2
+mirror](https://www.kaggle.com/datasets/spacesurfer/ph2-dataset) (`scripts/download_ph2.py`) since
+upstream PH2 is a Google-Drive/request-form release rather than a plain URL; no official train/val
+/test protocol is published for it, so this uses a 140/20/40 (70/10/20) seeded split, same ratio as
+HAM10000.
+
+| metric | paper (Table 1, PH2) | ours | Δ | |
+|---|---|---|---|---|
+| **DSC / F1** | 0.9265 | **0.9312** | **+0.0047** | ours slightly higher |
+| IoU | 0.8631 | 0.8712 | +0.0081 | forced by DSC, same identity as the other two |
+| SE / Recall | 0.9345 | 0.9100 | −0.0245 | |
+| SP | 0.9606 | 0.9761 | +0.0155 | |
+| ACC | 0.9521 | 0.9530 | +0.0009 | |
+| Prec | 0.9187 | 0.9534 | +0.0347 | derived from the confusion matrix below |
+
+Confusion matrix: `TN 1,664,436 · FP 40,782 · FN 82,480 · TP 833,742`
+
+**Replication successful** — and the first of the three where our number comes in *above* the
+paper's rather than within a negative tolerance band. Take that "beat the paper" framing with a
+grain of salt, though: the test split is only **40 images**, an order of magnitude smaller than
+ISIC2017's 600 or ISIC2018's 520, so a handful of images flipping from correct to wrong moves DSC by
+more than a percentage point on its own. The honest read is "well within replication," not "better
+architecture."
+
+### Per-image variance
+
+Over the 40 test images: mean DSC 0.9309, std **0.0516** — the tightest of all four datasets, and
+zero images below 0.7 DSC (worst: image 29 at 0.7736). Consistent with PH2 being a small, curated
+clinical release rather than a crowd-sourced challenge archive — but also consistent with 40 images
+simply being too few to surface many outliers even if the underlying failure modes are similar to
+the other datasets.
+
 ## Cross-dataset summary
 
 | dataset | paper DSC | ours DSC | Δ | test n | per-image std | n below 0.5 DSC |
 |---|---|---|---|---|---|---|
 | ISIC2017 | 0.9091 | 0.9026 | −0.0065 | 600 | — | — |
 | ISIC2018 | 0.8940 | 0.8911 | −0.0029 | 520 | 0.1380 | 16 (3.1%) |
+| PH2 | 0.9265 | 0.9312 | +0.0047 | 40 | 0.0516 | 0 (0%) |
 | HAM10000 | — (not in paper) | 0.9331 | — | 2,003 | 0.0897 | 17 (0.8%) |
 
-All three runs use the identical architecture (49,457 params, 0.0602 GFLOPs) and training recipe;
-only the dataset changes. ISIC2018 is both the lowest-DSC and highest-variance of the three, which
-is the natural next question for a cross-dataset generalization study (does a model trained on one
-dataset transfer to another, and does ISIC2018's higher variance persist zero-shot or is it
-dataset-specific?) — see the project roadmap for planned follow-up work.
+All four runs use the identical architecture (49,457 params, 0.0602 GFLOPs) and training recipe;
+only the dataset changes. This completes replication on all three of the paper's benchmark datasets
+(ISIC2017, ISIC2018, PH2) plus one beyond its scope (HAM10000). ISIC2018 is both the lowest-DSC and
+highest-variance of the four, which is the natural next question for a cross-dataset generalization
+study (does a model trained on one dataset transfer to another, and does ISIC2018's higher variance
+persist zero-shot or is it dataset-specific?) — see the project roadmap for planned follow-up work.
 
 ## Reproducing
 
@@ -303,10 +343,14 @@ python dataprepare/Prepare_ISIC2017.py
 python scripts/download_isic.py --dataset ISIC2018
 python dataprepare/Prepare_ISIC2018.py
 
+# PH2
+python scripts/download_ph2.py      # requires a Kaggle API token at ~/.kaggle/kaggle.json
+python dataprepare/Prepare_PH2.py
+
 # HAM10000
 python scripts/download_ham10000.py
 python dataprepare/Prepare_HAM10000.py
 
 python -m pytest tests/ -q          # kernel-vs-oracle equivalence, applies to all datasets
-python train.py                     # set configs/config_setting.py: datasets = 'ISIC2017' | 'ISIC2018' | 'HAM10000'
+python train.py                     # set configs/config_setting.py: datasets = 'ISIC2017' | 'ISIC2018' | 'PH2' | 'HAM10000'
 ```
