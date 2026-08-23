@@ -240,6 +240,9 @@ data_hf_tmp/
 # Kaggle run exports (notebooks with outputs, zipped results)
 kaggle_runs/
 
+# Kaggle API credential (kaggle.com/settings -> Create New Token). Never commit this.
+kaggle.json
+
 # Claude Code session state (this is tool state, not project content -- keep
 # it out of a shared repo so a teammate's local session isn't committed).
 .claude/

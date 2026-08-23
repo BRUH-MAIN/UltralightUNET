@@ -97,7 +97,7 @@ def main():
 
     for name, fn in (("push", push), ("pull", pull)):
         p = sub.add_parser(name)
-        p.add_argument("--dataset", default="ISIC2017", choices=["ISIC2017", "ISIC2018", "PH2"])
+        p.add_argument("--dataset", default="ISIC2017", choices=["ISIC2017", "ISIC2018", "HAM10000", "PH2"])
         p.add_argument("--repo", default=DEFAULT_REPO,
                        help=f"dataset repo id (default: {DEFAULT_REPO})")
         p.set_defaults(fn=fn)

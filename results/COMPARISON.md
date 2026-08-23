@@ -1,4 +1,16 @@
-# Replication results vs. the paper — ISIC2017
+# Replication results vs. the paper — ISIC2017, ISIC2018, HAM10000
+
+Reference: Table 1 of Wu et al., *Patterns* 6, 101298 (2025) — the paper's ISIC2017, ISIC2018 and
+PH2 blocks. HAM10000 is not one of the paper's three benchmark datasets; it's covered in its own
+section below as an extension beyond the paper's evaluation set.
+
+- [ISIC2017](#isic2017) — the main replication saga (3 runs, split-bias diagnosis and fix)
+- [ISIC2018](#isic2018--replication-successful) — second independent replication, clean run
+- [HAM10000](#ham10000--generalization-beyond-the-papers-evaluation-set) — no paper target; tests generalization
+- [Cross-dataset summary](#cross-dataset-summary) — all three side by side
+- [Reproducing](#reproducing)
+
+## ISIC2017
 
 Reference: Table 1 of Wu et al., *Patterns* 6, 101298 (2025), ISIC2017 block.
 
@@ -201,11 +213,100 @@ Other differences, all detailed in [../README.md](../README.md):
 - for runs 1 and 2 only: the pure-PyTorch selective scan, per the note at the top; run 3 uses the
   fused kernel and lands 0.0004 DSC away
 
+## ISIC2018 — replication successful
+
+250 epochs, RTX 5060 Laptop GPU (sm_120), torch 2.13.0+cu130, `mamba_ssm` 2.3.2.post1 fused kernel,
+seeded split (`SPLIT_SEED = 42`), 2026-08-22. Best val loss 0.2578 @ epoch 106. Wall clock ~61 min
+(22:57:22 → 23:58:34). Unlike ISIC2017, `Prepare_ISIC2018.py` used a seeded shuffle from the start —
+the split-bias lesson from ISIC2017 run 1 was already known, so there was no bug to diagnose here.
+
+| metric | paper (Table 1, ISIC2018) | ours | Δ | |
+|---|---|---|---|---|
+| **DSC / F1** | 0.8940 | **0.8911** | **−0.0029** | within tolerance |
+| IoU | 0.8056 | 0.8037 | −0.0019 | forced by DSC, same identity as ISIC2017 |
+| SE / Recall | 0.8680 | 0.8861 | +0.0181 | |
+| SP | 0.9781 | 0.9735 | −0.0046 | |
+| ACC | 0.9558 | 0.9556 | −0.0002 | |
+| Prec | 0.9197 | 0.8962 | −0.0235 | derived from the confusion matrix below; `engine.py` doesn't log it |
+
+Confusion matrix: `TN 26,366,142 · FP 717,940 · FN 796,408 · TP 6,198,230`
+
+**Replication successful.** The gap is 0.29% DSC — tighter than the 0.65% ISIC2017 gap — well
+inside the ±0.01 band. This is a second, independent confirmation of replication fidelity: same
+architecture, same seeded-split methodology, same fused kernel, different dataset.
+
+### Per-image variance
+
+Over the 520 test images: mean DSC 0.8809, std **0.1380**. 16 images (3.1%) score below 0.5 DSC,
+39 (7.5%) below 0.7 — both notably higher outlier rates than HAM10000 (below). The worst cases:
+test images 42 (0.0513), 359 (0.0681), 40 (0.0777), 347 (0.2280), 273 (0.2326). These are a natural
+starting point for an explainability pass (attention/saliency maps) to see what characterizes the
+failures — small lesions, hair artifacts, low contrast, etc.
+
+## HAM10000 — generalization beyond the paper's evaluation set
+
+HAM10000 is not one of the paper's three benchmark datasets, so there's no Table 1 number to
+compare against here — this run instead tests whether the architecture generalizes to a dataset it
+was never designed or tuned against, using the Tschandl et al. lesion-segmentation masks paired
+with the HAM10000 dermoscopic images by filename stem (`scripts/download_ham10000.py`,
+`dataprepare/Prepare_HAM10000.py`).
+
+250 epochs, RTX 5060 Laptop GPU (sm_120), torch 2.13.0+cu130, `mamba_ssm` 2.3.2.post1 fused kernel,
+seeded split, 2026-08-22→23. Best val loss 0.1624 @ epoch 138. Wall clock ~2h51m
+(23:59:52 → 02:50:29), the longest of the three runs since HAM10000's test split (2,003 images) is
+roughly 4x ISIC2017's and 4x ISIC2018's.
+
+| metric | ours |
+|---|---|
+| **DSC / F1** | **0.9331** |
+| IoU | 0.8746 |
+| SE / Recall | 0.9213 |
+| SP | 0.9807 |
+| ACC | 0.9649 |
+| Prec | 0.9452 (derived) |
+
+Confusion matrix: `TN 94,506,386 · FP 1,864,389 · FN 2,745,908 · TP 32,151,925`
+
+This is the highest DSC of the three datasets. Plausible drivers: HAM10000's prepared split has far
+more images than ISIC2017 or ISIC2018 individually, giving the same 49,457-parameter model more
+data per parameter to fit; the Tschandl masks may also be more annotation-consistent than ISIC's
+crowd-sourced-style boundaries. Neither is confirmed — worth a closer look if pursued further.
+
+### Per-image variance
+
+Over the 2,003 test images: mean DSC 0.9328, std **0.0897** — the tightest of the three datasets.
+17 images (0.8%) score below 0.5 DSC, 56 (2.8%) below 0.7. Worst cases: test image 1761 (0.0000 —
+a full miss), 1573 (0.1769), 971 (0.1791), 192 (0.2156), 1019 (0.2208).
+
+## Cross-dataset summary
+
+| dataset | paper DSC | ours DSC | Δ | test n | per-image std | n below 0.5 DSC |
+|---|---|---|---|---|---|---|
+| ISIC2017 | 0.9091 | 0.9026 | −0.0065 | 600 | — | — |
+| ISIC2018 | 0.8940 | 0.8911 | −0.0029 | 520 | 0.1380 | 16 (3.1%) |
+| HAM10000 | — (not in paper) | 0.9331 | — | 2,003 | 0.0897 | 17 (0.8%) |
+
+All three runs use the identical architecture (49,457 params, 0.0602 GFLOPs) and training recipe;
+only the dataset changes. ISIC2018 is both the lowest-DSC and highest-variance of the three, which
+is the natural next question for a cross-dataset generalization study (does a model trained on one
+dataset transfer to another, and does ISIC2018's higher variance persist zero-shot or is it
+dataset-specific?) — see the project roadmap for planned follow-up work.
+
 ## Reproducing
 
 ```bash
+# ISIC2017
 python scripts/download_isic.py --dataset ISIC2017
 python dataprepare/Prepare_ISIC2017.py
-python -m pytest tests/ -q          # kernel-vs-oracle equivalence
-python train.py
+
+# ISIC2018
+python scripts/download_isic.py --dataset ISIC2018
+python dataprepare/Prepare_ISIC2018.py
+
+# HAM10000
+python scripts/download_ham10000.py
+python dataprepare/Prepare_HAM10000.py
+
+python -m pytest tests/ -q          # kernel-vs-oracle equivalence, applies to all datasets
+python train.py                     # set configs/config_setting.py: datasets = 'ISIC2017' | 'ISIC2018' | 'HAM10000'
 ```

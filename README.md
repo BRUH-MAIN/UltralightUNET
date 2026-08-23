@@ -19,7 +19,9 @@ Prec 0.9481, at 0.049 M params / 0.060 GFLOPs.
 | selective scan | `mamba_ssm` | **`mamba_ssm` 2.3.2.post1** | the paper's fused CUDA kernel |
 | equivalence tests | — | 44/44 pass | kernel vs. reference scan: init bit-exact, fwd/grads to fp32 tolerance |
 | ISIC2017 DSC | 0.9091 | **0.9026** | **−0.0065 — replicated** |
-| 250-epoch run | — | 22.9 min | RTX 5060, 5.2 s/epoch |
+| ISIC2018 DSC | 0.8940 | **0.8911** | **−0.0029 — replicated** |
+| HAM10000 DSC | — (not in paper) | **0.9331** | generalization beyond the paper's evaluation set |
+| 250-epoch run | — | 22.9 min (ISIC2017) | RTX 5060, 5.2 s/epoch |
 
 **Replication successful.** Run 3 — the first on `mamba_ssm`'s fused kernel — landed DSC 0.9026
 against the paper's 0.9091, a 0.71% gap and inside the ±0.01 band set beforehand. ACC matches to
@@ -36,6 +38,13 @@ Run 1 had come in 4.1 DSC points low purely because of a biased split (sorting t
 gave train/val/test lesion areas of 22.9% / 8.0% / 15.0%, since ISIC IDs correlate with acquisition
 source); a seeded permutation fixed the balance to 20.0% / 17.6% / 18.6% and recovered +0.0348 DSC.
 Full analysis in [results/COMPARISON.md](results/COMPARISON.md).
+
+**ISIC2018 and HAM10000.** The same architecture and recipe also replicate the paper's ISIC2018
+result (0.29% DSC gap, tighter than ISIC2017's) and generalize to HAM10000 — a dataset the paper
+never evaluates on — at DSC 0.9331, the highest of the three. ISIC2018 shows notably higher
+per-image variance (std 0.1380 vs HAM10000's 0.0897) and more low-Dice outliers; see the
+[cross-dataset summary](results/COMPARISON.md#cross-dataset-summary) for details and per-image
+breakdowns.
 
 > **On GFLOPs.** thop reads **0.0602** against the paper's 0.060 — three decimals, straight off the
 > measurement, and for a reason worth stating explicitly. thop can only count operations that pass

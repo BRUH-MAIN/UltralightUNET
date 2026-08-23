@@ -34,13 +34,15 @@ class setting_config:
 
     test_weights = ''
 
-    datasets = 'ISIC2017'
+    datasets = 'HAM10000'
     # PATCH: data_path filled in. The loader concatenates raw strings
     # (path_Data + 'data_train.npy'), so the trailing separator is required.
     if datasets == 'ISIC2017':
         data_path = os.path.join(_HERE, 'data', 'ISIC2017') + os.sep
     elif datasets == 'ISIC2018':
         data_path = os.path.join(_HERE, 'data', 'ISIC2018') + os.sep
+    elif datasets == 'HAM10000':
+        data_path = os.path.join(_HERE, 'data', 'HAM10000') + os.sep
     elif datasets == 'PH2':
         data_path = os.path.join(_HERE, 'data', 'PH2') + os.sep
     else:
@@ -78,8 +80,21 @@ class setting_config:
     #
     # MUST divide the split size exactly -- the val/test loaders use drop_last=True,
     # so a non-divisor silently DISCARDS images (batch 8 would evaluate 144 of 150).
-    # train.py asserts this rather than trusting it.
-    val_batch_size = 30     # 150 = 2 * 3 * 5^2, so 30 divides it exactly
+    # train.py asserts this rather than trusting it. Per-dataset because each
+    # dataset's val split is a different size:
+    #   ISIC2017  150  val = 2 * 3 * 5^2  -> 30
+    #   ISIC2018  259  val = 7 * 37       -> 37
+    #   HAM10000 1002  val = 2 * 3 * 167  -> 167 (only non-trivial divisor;
+    #            167 is prime -- 6 batches, same "large divisor, few batches"
+    #            convention as the other two). Pair count/split size printed by
+    #            Prepare_HAM10000.py at prep time; update this if that changes.
+    _VAL_BATCH_SIZE = {
+        'ISIC2017': 30,
+        'ISIC2018': 37,
+        'HAM10000': 167,
+        'PH2': 1,
+    }
+    val_batch_size = _VAL_BATCH_SIZE[datasets]
     test_batch_size = 1     # keep at 1: engine.test_one_epoch calls save_imgs, which
                             # does img.squeeze(0) and so assumes a batch of one
 
