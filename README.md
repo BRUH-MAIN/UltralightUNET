@@ -71,6 +71,15 @@ small true lesion, and diffuse low-contrast lesions collapsing attention onto on
 of the full extent — both directly visible in the Grad-CAM overlays. Full case study and grid image
 in [Explainability](results/COMPARISON.md#explainability).
 
+**Efficiency.** Channel-width scaling (`scripts/train_width_variant.py`) found that ISIC2017 DSC
+barely moves down to ~9x fewer parameters (49,457 → 5,581, both landing inside the ±0.003
+run-to-run noise floor) — the paper's own widths aren't close to a capacity cliff on this dataset.
+Separately, post-training INT8 dynamic quantization (`scripts/quantize_eval.py`) gives a 31%
+smaller, 20%-lower-latency CPU model at **zero** measured DSC cost, scoped to the ~56% of
+parameters reachable through a normal `nn.Linear` call (Mamba's own projections are excluded — see
+the caveat in COMPARISON.md). Full tables, Pareto plot, and scope notes in
+[Efficiency](results/COMPARISON.md#efficiency).
+
 > **On GFLOPs.** thop reads **0.0602** against the paper's 0.060 — three decimals, straight off the
 > measurement, and for a reason worth stating explicitly. thop can only count operations that pass
 > through an `nn.Module.forward`, and on the fused path Mamba's internals never do: `mamba_inner_fn`

@@ -11,6 +11,7 @@ it's covered in its own section below as an extension beyond the paper's evaluat
 - [Cross-dataset summary](#cross-dataset-summary) — all four side by side
 - [Cross-dataset generalization](#cross-dataset-generalization) — zero-shot transfer matrix and findings
 - [Explainability](#explainability) — attention/Seg-Grad-CAM case study, two ISIC2018 failure modes
+- [Efficiency](#efficiency) — channel-width scaling Pareto curve + INT8 quantization
 - [Reproducing](#reproducing)
 
 ## ISIC2017
@@ -484,6 +485,76 @@ confusion, diffuse-boundary under-segmentation) are plausible root causes for IS
 per-image variance relative to the other three datasets, but confirming that at scale would need
 running this same analysis over all 16 outliers, which `scripts/explainability.py --indices` supports
 directly.
+
+## Efficiency
+
+Two questions: how far can the paper's already-tiny channel widths (`c_list=[8,16,24,32,48,64]`,
+49,457 params) be shrunk before DSC actually suffers, and how much does post-training INT8
+quantization buy for free on top of whatever width is chosen. Both measured on ISIC2017.
+
+### Channel-width scaling
+
+`scripts/train_width_variant.py` trains alternative `c_list`s with everything else held fixed (250
+epochs, same optimizer/schedule/seed/batch size). Every entry must be divisible by 4 —
+`PVMLayer`'s 4-way chunk and every stage's `GroupNorm(4, ·)` both require it, which puts a floor of
+`c_list[0]=4` on the shallowest layer.
+
+| variant | c_list | params | GFLOPs | DSC | Δ vs baseline |
+|---|---|---|---|---|---|
+| baseline (paper) | [8,16,24,32,48,64] | 49,457 | 0.0602 | 0.8993 | — |
+| half | [4,8,12,16,24,32] | 14,633 (3.4x fewer) | 0.0204 | 0.9010 | +0.0017 |
+| quarter | [4,4,8,8,12,16] | 5,581 (8.9x fewer) | 0.0141 | 0.8976 | −0.0017 |
+
+![Channel-width scaling Pareto curve](../ppt_assets/width_scaling_pareto.png)
+
+**DSC barely moves down to ~9x fewer parameters.** Both variants land inside the ±0.003
+run-to-run noise floor from the [reproducibility note](#run-4--reproducibility-check-found-incidentally-undocumented-until-now)
+above — half is actually *higher* than the baseline run used here (though still within noise of run
+3's 0.9026 too), and quarter, at 5,581 params, is only 0.0017 DSC below it. On ISIC2017
+specifically, the paper's own channel widths aren't close to a cliff: something else (data,
+augmentation, the task's intrinsic difficulty) is the binding constraint on achievable DSC in this
+range, not model capacity. Wall-clock training time did *not* improve with the smaller variants (31
+and 35 min vs. baseline's 23 min) — consistent with this codebase's existing observation
+(`scripts/bench_batch.py`) that the architecture's cost is dominated by per-launch overhead, not
+FLOPs, so a narrower model isn't faster to train on this hardware even though it's cheaper on paper.
+
+Checkpoint file size: baseline 235 KB, half 97 KB, quarter 60 KB.
+
+### Post-training INT8 quantization
+
+`scripts/quantize_eval.py` applies `torch.quantization.quantize_dynamic` to the baseline
+(full-width) checkpoint. `mamba_ssm`'s fused kernel is CUDA-only with no CPU fallback, and
+PyTorch's dynamic-quantized kernels are CPU-only — so this runs the pure-PyTorch Mamba oracle
+instead (`models/mamba_pytorch.py`, the same backend `tests/test_mamba_equivalence.py` already
+validates against the fused kernel), with the `mamba_ssm`-trained weights loaded directly in. That
+substitution is confirmed working, not just assumed: it reproduces the exact same DSC (0.8993) on
+CPU as the fused-kernel GPU run.
+
+Of the model's 49,457 parameters, quantization reaches 27,512 (55.6%) — the 11 `nn.Linear` layers
+called through a normal `forward()` (`PVMLayer.proj` ×6, `Channel_Att_Bridge.att1-5` ×5). Mamba's
+own four projections per PVM layer (8,588 params, 17.4%) are excluded: `mamba_pytorch.py` reads
+`self.in_proj.weight` as a raw tensor for a manual matmul rather than calling `self.in_proj(x)`, and
+a dynamic-quantized `Linear` exposes `.weight` as a method, not a tensor — `quantize_dynamic` on
+those raises `TypeError: unsupported operand type(s) for @` at the first forward pass. The remaining
+13,357 params (Conv2d, GroupNorm, Mamba's `A_log`/`D`/`conv1d`) were never quantization candidates
+either way.
+
+| | fp32 (CPU) | INT8 dynamic (CPU) | Δ |
+|---|---|---|---|
+| model size | 0.239 MB | 0.166 MB | **−30.7%** |
+| latency | 21.05 ms/image | 16.88 ms/image | **−19.8%** |
+| DSC | 0.8993 | 0.8993 | **0.0000** |
+
+**Free, within the scope quantized.** No measurable DSC cost for a 31% smaller, 20% faster model —
+though "faster" here is single-image CPU latency, not the GPU throughput the paper and every other
+benchmark in this repo report, and the win comes entirely from `PVMLayer.proj`/`Channel_Att_Bridge`'s
+linears, not from Mamba's own (larger, and here untouched) projections.
+
+### Not yet done
+
+Whether the "quarter" width variant quantizes as cleanly as the baseline, and whether static
+quantization (which can also reach Conv2d, at the cost of needing calibration data) beats dynamic
+quantization's 30.7%, are both natural next steps if this thread continues.
 
 ## Reproducing
 
