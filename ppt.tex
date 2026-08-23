@@ -1,0 +1,373 @@
+\documentclass{beamer}
+\usepackage{ctex, hyperref}
+\usepackage[T1]{fontenc}
+
+% Other packages
+\usepackage{latexsym,amsmath,xcolor,multicol,booktabs,calligra}
+\usepackage{graphicx,pstricks,listings,stackengine}
+
+% Fixed presentation information
+\newcommand{\TeamNumber}{Team 08}
+\newcommand{\InstitutionName}{School of AI, Amrita Vishwa Vidyapeetham}
+\newcommand{\TitleLogoPath}{pic/logored.png}
+
+% Reusable subject-specific placeholders
+\newcommand{\PresentationTitle}{UltraLight VM-UNet: Replicating a Parameter-Efficient Skin Lesion Segmentation Model}
+\newcommand{\SubjectCode}{<SUBJECT\_CODE>}
+\newcommand{\SubjectName}{Medical Image Processing}
+\newcommand{\TopicName}{UltraLight VM-UNet}
+
+\newcommand{\SectionOneHeading}{\TopicName}
+\newcommand{\SectionTwoHeading}{Architecture \& Method}
+\newcommand{\SectionThreeHeading}{Replication Engineering}
+\newcommand{\SectionFourHeading}{Evaluation}
+
+\newcommand{\IntroductionFrameTitle}{Introduction}
+\newcommand{\OverviewFrameTitle}{Project Overview}
+\newcommand{\ObjectivesFrameTitle}{Objectives}
+\newcommand{\TheoryFrameTitle}{UltraLight VM-UNet: Architecture}
+\newcommand{\DatasetFrameTitle}{Dataset: ISIC2017}
+\newcommand{\HyperparamsFrameTitle}{Hyperparameter Choices \& Why}
+\newcommand{\ImpactFrameTitle}{Clinical \& Practical Significance}
+\newcommand{\ExamplesFrameTitle}{From Paper to Code: Key Engineering Choices}
+\newcommand{\ComparisonFrameTitle}{Structural Verification vs.\ the Paper}
+\newcommand{\ResultsFrameTitle}{ISIC2017 Results vs.\ the Paper}
+\newcommand{\SamplesFrameTitle}{Sample Segmentation Results}
+\newcommand{\CurvesFrameTitle}{Training \& Validation Curves}
+\newcommand{\FinalPlotsFrameTitle}{Confusion Matrix \& Paper Comparison}
+\newcommand{\SubtopicFrameTitle}{Case Study: Debugging a Biased Data Split}
+\newcommand{\ConclusionFrameTitle}{Conclusion}
+\newcommand{\ReferencesFrameTitle}{References}
+
+\newcommand{\IntroductionContent}{%
+\small
+\begin{itemize}
+    \item Skin lesion segmentation from dermoscopic images is a key step toward automated melanoma screening, but most high-accuracy models are too large for mobile or point-of-care devices.
+    \item Wu et al., \emph{``UltraLight VM-UNet: Parallel Vision Mamba significantly reduces parameters for skin lesion segmentation''}, \emph{Patterns} 6, 101298 (2025), propose a U-Net-shaped segmentation network built around a novel \textbf{Parallel Vision Mamba (PVM) Layer}.
+    \item Headline claim: competitive Dice/IoU on ISIC2017, ISIC2018 and PH2 with only \textbf{0.049 M parameters} and \textbf{0.060 GFLOPs} -- orders of magnitude smaller than prior lightweight U-Nets.
+    \item This project independently \textbf{replicates} the paper's ISIC2017 result end to end, from raw image download to a trained checkpoint, on a self-owned codebase.
+\end{itemize}
+}
+\newcommand{\OverviewContent}{%
+\small
+\begin{itemize}
+    \item Goal, stated up front in the project: build a \textbf{trustworthy, self-owned baseline} -- reproduce the paper's ISIC2017 numbers first, then use that as the foundation for further work.
+    \item Full pipeline reimplemented: data download \& preprocessing, the model itself, training/validation/test loops, and evaluation metrics.
+    \item The published upstream code (\texttt{wurenkai/UltraLight-VM-UNet}) depends on CUDA-only packages (\texttt{mamba\_ssm}, \texttt{causal\_conv1d}) that are non-trivial to build from source. The Mamba core was independently reimplemented in pure PyTorch first, as a portable, verified oracle -- \textbf{training itself now runs on \texttt{mamba\_ssm}'s real fused CUDA kernel}, the same code path the paper's numbers come from.
+    \item Every intentional deviation from upstream is documented and justified; \texttt{models/UltraLight\_VM\_UNet.py} is otherwise a byte-identical transcription of the published model.
+\end{itemize}
+}
+\newcommand{\ObjectiveOne}{Match the paper's \textbf{structural} numbers exactly -- parameter count and GFLOPs -- to confirm the reimplemented model is parameterised identically to the original.}
+\newcommand{\ObjectiveTwo}{Reproduce the paper's \textbf{ISIC2017 segmentation metrics} (DSC, IoU, ACC, SE, SP, Precision) within a pre-declared tolerance, training from scratch for the full 250 epochs.}
+\newcommand{\ObjectiveThree}{Deliver a \textbf{portable, verified} pure-PyTorch Mamba oracle with automated equivalence tests, so \texttt{mamba\_ssm}'s fused CUDA kernel -- the actual training backend, matching the paper -- can be certified correct wherever it is built.}
+\newcommand{\TheoryContent}{%
+\small
+\begin{itemize}
+    \item \textbf{Encoder--decoder U-Net} with 6 stages, channel widths \texttt{c\_list = [8,16,24,32,48,64]}: the 3 shallow encoder/decoder stages are plain \texttt{Conv2d + GroupNorm + GELU + max-pool}; the 3 deepest stages (lowest resolution) replace convolution with a \textbf{PVM Layer}.
+    \item \textbf{PVM Layer:} LayerNorm $\to$ split channels into 4 chunks $\to$ \textbf{one shared Mamba (selective state-space) call} processes all 4 chunks $\to$ learnable skip-scale residual $\to$ concat $\to$ linear projection. Reusing a single Mamba block across 4 parallel branches is what keeps the parameter count nearly constant as the network deepens.
+    \item \textbf{SC-Att Bridge:} a spatial-attention $\to$ channel-attention skip-connection bridge that fuses all 5 encoder feature maps before they reach the decoder.
+    \item Loss \texttt{BceDiceLoss}; AdamW; \texttt{CosineAnnealingLR}; 250 epochs, batch 8, 256$\times$256 input -- \textbf{result: 49,457 parameters / 0.060 GFLOPs}, roughly three orders of magnitude fewer than a standard U-Net.
+\end{itemize}
+}
+\newcommand{\DatasetContent}{%
+\small
+\begin{itemize}
+    \item \textbf{ISIC2017 Challenge dataset} (Codella et al., 2018) -- one of three datasets in the paper's Table 1 (with ISIC2018, PH2); chosen as this project's primary replication target for direct comparability.
+    \item \textbf{Split:} 1250 train / 150 val / 600 test -- matches the paper's split sizes exactly, built once from a seeded permutation (\texttt{SPLIT\_SEED = 42}) rather than upstream's raw file-listing order.
+    \item \textbf{Preprocessing:} bilinear resize to 256$\times$256; stored as uint8 ($\sim$525 MB total, vs.\ $\sim$4 GB at upstream's float64) -- lossless relative to the original pipeline.
+    \item Prepared once, then shared so every machine trains/evaluates on \textbf{byte-identical data} -- eliminates a whole class of ``did the split leak'' bugs.
+\end{itemize}
+}
+\newcommand{\HyperparamsContent}{%
+\small
+\centering
+\begin{tabular}{ll}
+    \toprule
+    \textbf{Hyperparameter} & \textbf{Value} \\
+    \midrule
+    Optimiser & AdamW (lr 1e-3, wd 1e-2) \\
+    Scheduler & \texttt{CosineAnnealingLR} (\texttt{T\_max=50}, \texttt{eta\_min=1e-5}) \\
+    Batch size & 8 \\
+    Epochs & 250 \\
+    Loss & \texttt{BceDiceLoss} \\
+    Threshold & 0.5 \\
+    \bottomrule
+\end{tabular}
+\par\bigskip
+\raggedright\footnotesize
+\begin{itemize}
+    \item Every value above is copied verbatim from the paper, not tuned -- so any deviation would be comparing against a different experiment.
+    \item \textbf{Batch size 8} sets the number of optimiser steps per epoch (157 vs.\ 39 at bs=32), so it is not a free knob despite appearances.
+    \item \textbf{The one exception:} validation/test batch size (30/1) is unconstrained -- no gradients are taken during evaluation, so it affects only wall-clock speed ($20\times$ faster), never the result.
+\end{itemize}
+}
+\newcommand{\ImpactContent}{%
+\small
+\begin{itemize}
+    \item \textbf{Clinical motivation (the paper's framing):} a segmentation model small enough to run on mobile or resource-constrained devices could bring automated lesion screening to primary care and remote settings, not just hospitals with high-end compute.
+    \item The PVM Layer is presented as a \textbf{plug-and-play} lightweight module that could, in principle, replace heavier blocks in other segmentation architectures.
+    \item \textbf{Why replicate it:} a paper's reported numbers are not automatically load-bearing for future work; independently reproducing them from raw data, not from a released checkpoint, is what turns a claim into something this project can safely build novel contributions on top of.
+    \item Side benefit: showing that a pure-PyTorch selective scan matches a fused-CUDA-kernel Mamba to under $10^{-5}$ removes a portability barrier for anyone wanting to run this model outside a Linux/CUDA environment.
+\end{itemize}
+}
+\newcommand{\ExamplesContent}{%
+\footnotesize
+\begin{enumerate}
+    \item \textbf{Mamba in pure PyTorch, as a test oracle -- not the training path.} Upstream requires \texttt{mamba\_ssm}/\texttt{causal\_conv1d} (CUDA-only, non-trivial to build from source). Reimplemented using \texttt{selective\_scan\_ref}, the reference recurrence the official CUDA kernel is tested against. Verified to agree with \texttt{mamba\_ssm}'s fused kernel to under $10^{-5}$ forward / $10^{-4}$ gradient across all 6 real PVM layer shapes -- \textbf{44/44} automated tests pass.
+    \item \textbf{Two independent speedups, zero semantic change.} (a) \texttt{PVMLayer} batches its 4 sequential Mamba calls into one call along the batch axis: \textbf{1.93$\times$} on the training step. (b) Migrating from the pure-PyTorch scan to \texttt{mamba\_ssm}'s fused CUDA kernel adds another \textbf{1.6$\times$}. Combined, a full 250-epoch training run now takes under 23 minutes, down from over 90 before these changes. Both patches are verified against upstream's exact form, on outputs \emph{and} gradients.
+    \item \textbf{Data preparation rewritten}, since SciPy $\geq$1.3 removed the function upstream used: Pillow-based resize; a seeded shuffle before splitting instead of upstream's filesystem-order \texttt{glob.glob()}.
+    \item \textbf{Small environment patches:} \texttt{scipy.ndimage} API updates, a headless matplotlib backend, and \texttt{DataParallel} dropped for single-GPU runs (checkpoint keys unchanged). All hyperparameters are left untouched.
+\end{enumerate}
+}
+\newcommand{\ComparisonContent}{%
+\small
+\centering
+\begin{tabular}{lccl}
+    \toprule
+    & \textbf{Paper} & \textbf{Ours} & \\
+    \midrule
+    Parameters & 49,457 (0.049 M) & \textbf{49,457} & exact match \\
+    GFLOPs & 0.060 & \textbf{0.0602} & see note below \\
+    Equivalence tests & -- & \textbf{44 / 44} pass & fwd $<10^{-5}$, grad $<10^{-4}$ \\
+    \bottomrule
+\end{tabular}
+\par\bigskip
+\raggedright\footnotesize
+\begin{itemize}
+    \item Exact parameter match confirms the reimplementation is parameterised identically to \texttt{mamba\_ssm} at all 6 PVM layers.
+    \item The tiny GFLOPs gap (0.060 vs.\ 0.0602) is a measurement artifact, not a model difference.
+    \item \texttt{thop} cannot see operations that run as fused CUDA calls (\texttt{causal\_conv1d\_fn}, \texttt{mamba\_inner\_fn}) -- true in the paper's own environment too.
+    \item Excluding the equivalent PyTorch-side ops here reproduces 0.060 to three decimals.
+\end{itemize}
+}
+\newcommand{\ResultsContent}{%
+\small
+\centering
+\begin{tabular}{lccc}
+    \toprule
+    \textbf{Metric} & \textbf{Paper} & \textbf{Ours} & $\Delta$ \\
+    \midrule
+    DSC / F1 & 0.9091 & \textbf{0.9026} & $-0.0065$ \\
+    IoU & 0.8334 & 0.8225 & $-0.0109$ \\
+    SE / Recall & 0.9053 & 0.8917 & $-0.0136$ \\
+    SP & 0.9790 & 0.9808 & $+0.0018$ \\
+    ACC & 0.9646 & 0.9643 & $-0.0003$ \\
+    Precision & 0.9481 & 0.9138 & $-0.0343$ \\
+    \bottomrule
+\end{tabular}
+\par\bigskip
+\raggedright\footnotesize
+\begin{itemize}
+    \item 250 epochs on \texttt{mamba\_ssm}'s fused CUDA kernel -- the same code path the paper's own numbers come from.
+    \item DSC gap of \textbf{0.65\%} is inside the $\pm 0.01$ tolerance set before the run -- \textbf{replication successful}. Cross-checked: swapping the pure-PyTorch scan for the fused kernel moved DSC by only 0.0004 (0.9030 $\to$ 0.9026), confirming the two backends agree.
+    \item IoU and DSC are mechanically related for single-class segmentation ($\mathrm{IoU} = \mathrm{DSC}/(2-\mathrm{DSC})$), so the larger IoU delta carries no information beyond the DSC gap.
+    \item The Precision gap is the one outlier -- and it traces to the paper's own table, not this run: DSC is by definition the harmonic mean of Precision and SE, but the paper's own 0.9481/0.9053 imply DSC 0.9262, not the 0.9091 it reports. The Precision consistent with the paper's \emph{own} DSC and SE is 0.9129 -- within 0.0009 of ours.
+\end{itemize}
+}
+\newcommand{\SamplesContent}{%
+\small
+\begin{columns}[T]
+\begin{column}{0.5\textwidth}
+\centering
+\includegraphics[height=5.4cm]{ppt_assets/sample_0.png}
+\end{column}
+\begin{column}{0.5\textwidth}
+\centering
+\includegraphics[height=5.4cm]{ppt_assets/sample_45.png}
+\end{column}
+\end{columns}
+\vspace{6pt}
+\begin{itemize}
+    \item Each triplet: input dermoscopic image, ground-truth mask, predicted mask.
+    \item Predictions are thresholded at 0.5 on the model's sigmoid output.
+    \item Both examples show close agreement between prediction and ground truth.
+    \item All 600 test-split predictions are saved automatically by \texttt{test.py}.
+\end{itemize}
+}
+\newcommand{\CurvesContent}{%
+\small
+\begin{columns}[T]
+\begin{column}{0.5\textwidth}
+\centering
+\includegraphics[width=\linewidth]{ppt_assets/loss_curve.png}
+\end{column}
+\begin{column}{0.5\textwidth}
+\centering
+\includegraphics[width=\linewidth]{ppt_assets/val_metrics.png}
+\end{column}
+\end{columns}
+\vspace{6pt}
+\begin{itemize}
+    \item Train/val loss converge smoothly; periodic bumps track the \texttt{CosineAnnealingLR} restarts every 50 epochs.
+    \item Best checkpoint selected at the minimum validation loss.
+    \item DSC, IoU, accuracy, sensitivity, and specificity are logged every epoch and trend upward together.
+    \item Both plots generated automatically by \texttt{scripts/plot\_metrics.py} from the run's log.
+\end{itemize}
+}
+\newcommand{\FinalPlotsContent}{%
+\small
+\begin{columns}[T]
+\begin{column}{0.42\textwidth}
+\centering
+\includegraphics[width=\linewidth]{ppt_assets/confusion_matrix.png}
+\end{column}
+\begin{column}{0.58\textwidth}
+\centering
+\includegraphics[width=\linewidth]{ppt_assets/paper_vs_ours.png}
+\end{column}
+\end{columns}
+\vspace{6pt}
+\begin{itemize}
+    \item Pooled over all 600 test images: true positives/negatives dominate, as expected for lesion segmentation.
+    \item The paper-vs-ours bar chart makes the near-exact match visually obvious across all six metrics.
+    \item Only Precision shows a visible gap -- traced to the paper's own table, not this run.
+    \item Both figures reproducible with a single command against any training run.
+\end{itemize}
+}
+\newcommand{\SubtopicContent}{%
+\small
+\begin{itemize}
+    \item \textbf{Run 1} (sorted file listing before splitting): DSC \textbf{0.8682} -- 4.1 points below the paper.
+    \item \textbf{Root cause:} ISIC image IDs correlate with acquisition source. Sorting before slicing \texttt{[0{:}1250 / 1250{:}1400 / 1400{:}2000]} gave train/val/test mean lesion areas of \textbf{22.9\% / 8.0\% / 15.0\%} -- a systematically biased split, not a model problem. The model trained on large lesions ($\sim$15{,}000 px) and was tested on much smaller ones ($\sim$9{,}900 px).
+    \item The error signature confirmed the diagnosis: sensitivity and precision both down $\sim$0.06, specificity slightly \emph{up}, accuracy nearly unchanged -- classic under-segmentation, dominated by the easy background class.
+    \item \textbf{Fix:} a seeded permutation (\texttt{SPLIT\_SEED = 42}) before splitting -- reproducible \emph{and} unbiased (20.0\%/17.6\%/18.6\% lesion area) -- recovered \textbf{+0.0348 DSC} (0.8682 $\to$ 0.9030), closing almost the entire gap to the paper.
+\end{itemize}
+}
+\newcommand{\ConclusionContent}{%
+\small
+\begin{itemize}
+    \item \textbf{Structural replication: exact.} 49,457 / 49,457 parameters; GFLOPs match to three decimals once the \texttt{thop} measurement artifact is accounted for.
+    \item \textbf{Performance replication: successful.} ISIC2017 DSC 0.9026 vs.\ the paper's 0.9091 -- a 0.65\% gap, inside the $\pm 0.01$ tolerance declared before training, on the paper's own fused CUDA kernel.
+    \item Getting there took real engineering, not just running the training script: a verified pure-PyTorch Mamba oracle, \texttt{mamba\_ssm} built and verified from source, a combined $\sim$3$\times$ training speedup, and diagnosing/fixing a biased data split that was costing over 4 DSC points.
+    \item Every deviation from upstream is documented, justified, and -- where it touches the model's math -- covered by an automated equivalence test, so this baseline can be trusted as a foundation for further work.
+\end{itemize}
+}
+\newcommand{\ReferencesContent}{%
+\footnotesize
+\begin{enumerate}
+    \item R. Wu, Y. Liu, G. Ning, P. Liang, Q. Chang, ``UltraLight VM-UNet: Parallel Vision Mamba significantly reduces parameters for skin lesion segmentation,'' \emph{Patterns}, 6, 101298, 2025 (\url{https://doi.org/10.1016/j.patter.2025.101298}); upstream code: \texttt{wurenkai/UltraLight-VM-UNet}, GitHub.
+    \item A. Gu, T. Dao, ``Mamba: Linear-Time Sequence Modeling with Selective State Spaces,'' arXiv:2312.00752, 2023.
+    \item N. Codella et al., ``Skin Lesion Analysis Toward Melanoma Detection: A Challenge at the 2017 International Symposium on Biomedical Imaging (ISBI), Hosted by the International Skin Imaging Collaboration (ISIC),'' arXiv:1710.05006, 2018. (ISIC2017 dataset.)
+    \item This replication: Team 08 codebase -- see \texttt{README.md} and \texttt{results/COMPARISON.md} for full methodology and results.
+\end{enumerate}
+}
+
+\author{\TeamNumber}
+\institute{\InstitutionName}
+\title{\PresentationTitle}
+\subtitle{\mbox{}\\\SubjectCode{} - \SubjectName}
+\date{}
+\usepackage{Amr_Beamer}
+
+% Definitions
+\definecolor{deepblue}{rgb}{0,0,0.5}
+\definecolor{deepred}{rgb}{0.6,0,0}
+\definecolor{deepgreen}{rgb}{0,0.5,0}
+\definecolor{halfgray}{gray}{0.55}
+
+\lstset{
+    basicstyle=\ttfamily\small,
+    keywordstyle=\bfseries\color{deepblue},
+    emphstyle=\ttfamily\color{deepred},
+    stringstyle=\color{deepgreen},
+    numbers=left,
+    numberstyle=\small\color{halfgray},
+    rulesepcolor=\color{red!20!green!20!blue!20},
+    frame=shadowbox,
+}
+
+\begin{document}
+
+\begin{frame}
+    \titlepage
+    \centering\includegraphics[scale=0.6]{\TitleLogoPath}
+\end{frame}
+
+\section{Team}
+\begin{frame}{Team Members}
+    \begin{tabular}{ll}
+        \textbf{Name} & \textbf{Roll No} \\
+        B Pranav Karthik & CB.SC.U4AIE23217 \\
+        Bharath Sooryaa M & CB.SC.U4AIE23218 \\
+        Hari Karthik V & CB.SC.U4AIE23227 \\
+        Rohan Ramesh & CB.SC.U4AIE23242 \\
+    \end{tabular}
+\end{frame}
+
+% ================= TEMPLATE STARTS HERE =================
+
+\section{\SectionOneHeading}
+\begin{frame}{\IntroductionFrameTitle}
+    \IntroductionContent
+\end{frame}
+
+\begin{frame}{\OverviewFrameTitle}
+    \OverviewContent
+\end{frame}
+
+\begin{frame}{\ObjectivesFrameTitle}
+    \begin{itemize}
+        \item \ObjectiveOne
+        \item \ObjectiveTwo
+        \item \ObjectiveThree
+    \end{itemize}
+\end{frame}
+
+\section{\SectionTwoHeading}
+\begin{frame}{\TheoryFrameTitle}
+    \TheoryContent
+\end{frame}
+
+\begin{frame}{\DatasetFrameTitle}
+    \DatasetContent
+\end{frame}
+
+\begin{frame}{\HyperparamsFrameTitle}
+    \HyperparamsContent
+\end{frame}
+
+\begin{frame}{\ImpactFrameTitle}
+    \ImpactContent
+\end{frame}
+
+\section{\SectionThreeHeading}
+\begin{frame}{\ExamplesFrameTitle}
+    \ExamplesContent
+\end{frame}
+
+\section{\SectionFourHeading}
+\begin{frame}{\ComparisonFrameTitle}
+    \ComparisonContent
+\end{frame}
+
+\begin{frame}{\ResultsFrameTitle}
+    \ResultsContent
+\end{frame}
+
+\begin{frame}{\SamplesFrameTitle}
+    \SamplesContent
+\end{frame}
+
+\begin{frame}{\CurvesFrameTitle}
+    \CurvesContent
+\end{frame}
+
+\begin{frame}{\FinalPlotsFrameTitle}
+    \FinalPlotsContent
+\end{frame}
+
+\begin{frame}{\SubtopicFrameTitle}
+    \SubtopicContent
+\end{frame}
+
+\section{Conclusion}
+\begin{frame}{\ConclusionFrameTitle}
+    \ConclusionContent
+\end{frame}
+
+\section{References}
+\begin{frame}{\ReferencesFrameTitle}
+    \ReferencesContent
+\end{frame}
+
+\end{document}
