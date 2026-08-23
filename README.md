@@ -80,6 +80,10 @@ parameters reachable through a normal `nn.Linear` call (Mamba's own projections 
 the caveat in COMPARISON.md). Full tables, Pareto plot, and scope notes in
 [Efficiency](results/COMPARISON.md#efficiency).
 
+**Demo.** `python demo/app.py` launches a Gradio app tying the above together: pick a dataset, load
+a sample or upload an image, toggle full-precision vs. INT8, optionally show the attention/Grad-CAM
+overlays. Details in [Demo](results/COMPARISON.md#demo).
+
 > **On GFLOPs.** thop reads **0.0602** against the paper's 0.060 — three decimals, straight off the
 > measurement, and for a reason worth stating explicitly. thop can only count operations that pass
 > through an `nn.Module.forward`, and on the fused path Mamba's internals never do: `mamba_inner_fn`

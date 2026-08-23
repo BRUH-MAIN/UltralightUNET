@@ -12,6 +12,7 @@ it's covered in its own section below as an extension beyond the paper's evaluat
 - [Cross-dataset generalization](#cross-dataset-generalization) — zero-shot transfer matrix and findings
 - [Explainability](#explainability) — attention/Seg-Grad-CAM case study, two ISIC2018 failure modes
 - [Efficiency](#efficiency) — channel-width scaling Pareto curve + INT8 quantization
+- [Demo](#demo) — interactive Gradio app tying every section together
 - [Reproducing](#reproducing)
 
 ## ISIC2017
@@ -555,6 +556,45 @@ linears, not from Mamba's own (larger, and here untouched) projections.
 Whether the "quarter" width variant quantizes as cleanly as the baseline, and whether static
 quantization (which can also reach Conv2d, at the cost of needing calibration data) beats dynamic
 quantization's 30.7%, are both natural next steps if this thread continues.
+
+## Demo
+
+`demo/app.py` is a Gradio app tying together every earlier section rather than reimplementing any
+of it: dataset/checkpoint selection reuses `scripts/cross_eval.py`'s `find_best_checkpoint`/
+`load_model`, the INT8 path reuses `scripts/quantize_eval.py`'s CPU model + `quantize_dynamic`
+setup, and the explainability overlays call `scripts/explainability.py`'s `compute_maps` directly.
+
+```bash
+pip install gradio   # or: pip install -r requirements.txt
+python demo/app.py   # serves at http://127.0.0.1:7860
+```
+
+Pick a dataset (selects that dataset's trained checkpoint), either load a numbered test-set sample
+or upload a dermoscopy image directly, choose **full precision** (GPU if available, falling back to
+CPU fp32 if not — this box's GPU is not dedicated to this project, so that fallback path is real,
+not defensive-only) or **INT8 quantized (CPU)**, and optionally show the spatial-attention/
+Seg-Grad-CAM overlays from the [explainability](#explainability) section. The app measures its own
+inference latency live rather than quoting the numbers above, so the size/speed difference between
+the two model modes is visible on whatever machine it's actually run on.
+
+One combination is disabled rather than silently wrong: INT8 + explainability. Dynamic-quantized
+`Linear` layers are inference-only (no `backward()`), so Seg-Grad-CAM can't run against them; the
+app detects the combination, runs the prediction anyway, and says why the overlay is missing instead
+of erroring.
+
+For an uploaded image (no dataset `.npy` file, so no built-in normalization statistics),
+preprocessing is a 256x256 bilinear resize followed by a whole-image min-max stretch to [0,255].
+That's not an approximation of `dataprepare/*.py`'s pipeline — it's mathematically identical to it
+for a single image: `dataset_normalized`'s global mean/std step is an affine transform, and the
+per-image min-max normalization that follows it cancels out any preceding affine transform exactly.
+
+### Not yet done
+
+Deploying to a Hugging Face Space, so the demo is reachable without a live laptop during the actual
+review — the CPU path (both fp32 fallback and INT8) is already validated working end-to-end, which
+is what a free-tier CPU Space would run on, so this is mostly upload/config work at this point, not
+open engineering. Left for a deliberate follow-up rather than done here, since it means publishing
+model weights to an external host.
 
 ## Reproducing
 
