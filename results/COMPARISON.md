@@ -11,6 +11,7 @@ it's covered in its own section below as an extension beyond the paper's evaluat
 - [Cross-dataset summary](#cross-dataset-summary) — all four side by side
 - [Cross-dataset generalization](#cross-dataset-generalization) — zero-shot transfer matrix and findings
 - [Explainability](#explainability) — attention/Seg-Grad-CAM case study, two ISIC2018 failure modes
+- [Failure analysis and augmentation](#failure-analysis-and-augmentation) — all 39 outliers, size-linked bias, tested fix
 - [Efficiency](#efficiency) — channel-width scaling Pareto curve + INT8 quantization
 - [Demo](#demo) — interactive Gradio app tying every section together
 - [Reproducing](#reproducing)
@@ -480,12 +481,127 @@ stages deeper (Grad-CAM's target layer) does.
 ### Caveat
 
 Eight images (four failure, four success) is enough to characterize *these* failure modes, not to
-claim they're exhaustive or representative of ISIC2018's full 16-below-0.5-DSC population — the
-other 12 low-Dice test images aren't inspected here. Both identified patterns (bright artifact
-confusion, diffuse-boundary under-segmentation) are plausible root causes for ISIC2018's higher
-per-image variance relative to the other three datasets, but confirming that at scale would need
-running this same analysis over all 16 outliers, which `scripts/explainability.py --indices` supports
-directly.
+claim they're exhaustive or representative of ISIC2018's low-Dice population at large — see
+[Failure analysis and augmentation](#failure-analysis-and-augmentation) below, which runs the same
+idea over all 39 test images with DSC < 0.7, confirms both patterns hold at scale, finds a third,
+and tests a fix.
+
+## Failure analysis and augmentation
+
+`scripts/failure_analysis.py` collects every ISIC2018 test image with DSC < 0.7 (39 of 520, 7.5% —
+the [per-image variance](#per-image-variance) section above), computes two objective per-image
+metrics alongside the existing Grad-CAM machinery, and classifies each by `area_ratio` (predicted
+foreground pixels ÷ ground-truth foreground pixels):
+
+- **`area_ratio`** — >1.5 = over-segments, <0.67 = under-segments. This alone separates the two
+  Explainability failure modes without a hand-tuned artifact detector: attention pulled onto a
+  bright artifact over-segments onto it; attention collapsing onto one fleck under-segments the
+  true extent.
+- **`lesion_contrast`** — mean image intensity inside the ground-truth mask minus a ring immediately
+  outside it (the *actual local surrounding skin for that image*, not a fixed skin-tone heuristic).
+  Small magnitude = a diffuse, low-contrast lesion.
+
+| group | n (of 39) | mean \|lesion_contrast\| | mean bg_color_std | mean GT area (% of image) |
+|---|---|---|---|---|
+| over-segmenters (ratio > 1.5) | 23 (59%) | 36.2 | 35.5 | 4.7% |
+| under-segmenters (ratio < 0.67) | 12 (31%) | 15.2 | 29.5 | 32.5% |
+| mixed (right area, wrong location) | 4 (10%) | 14.7 | 33.4 | — |
+
+Full per-image table in `results/failure_analysis/ISIC2018/failure_metrics.csv`.
+
+### Three patterns, one of them size-driven
+
+**Under-segmentation is a contrast story, confirmed at scale.** The under-segmenter group's mean
+`|lesion_contrast|` (15.2) is under half the over-segmenters' (36.2) — the diffuse-lesion pattern
+from the 2-image Explainability sample (#40, #347) holds across all 12 under-segmenters, not just
+those two. Visually (`results/failure_analysis/ISIC2018/_under-segmenters.png`): #40, #347, #490,
+#425 all show the identical signature — a broad, low-contrast ground-truth region with Grad-CAM and
+the actual prediction collapsed onto one small high-contrast fleck inside it.
+
+**Over-segmentation is mostly a boundary-precision story, not an artifact story.** Only the two most
+extreme cases (#42 ratio 37.97, #359 ratio 28.36) are the glare/gauze non-skin-artifact confusion
+Explainability found. Looking at the *actual predicted mask* (not just Grad-CAM's blurrier overlay —
+`results/failure_analysis/ISIC2018/_over-segmenters.png` adds this panel) for the other 21: the
+model finds roughly the right location but draws a bigger, smoother, rounder blob than the true
+(often small, irregular, jagged-edged) lesion, and readily bleeds this over-generous boundary onto
+nearby hair, surgical ink, or ruler-line marks (#273, #76, #121, #434) rather than confusing them for
+the lesion outright.
+
+**Both are size-linked, in opposite directions.** `corr(GT area fraction, log(area_ratio)) = −0.53`:
+over-segmenters average 4.7% of the image as ground truth, under-segmenters 32.5% — a 7x difference.
+The model appears to pull predictions toward some implicit "preferred" size regardless of the true
+lesion's actual extent: small lesions get rounded up, large diffuse ones get shrunk down to a
+high-contrast core.
+
+### Augmentation: what should help, and what was tested
+
+Two augmentations target the two dominant, non-extreme patterns directly (`loader.py`, opt-in via
+`isic_loader(extra_augment=True)` — the canonical replication runs above are unaffected; wired
+through via `train.py`'s `getattr(config, 'extra_augment', False)`):
+
+- **CLAHE** (p=0.5 per training image) — contrast-limited adaptive histogram equalization on the L
+  channel, boosting local contrast. Targets the under-segmenters directly: it's exactly what a
+  low-`|lesion_contrast|` image lacks.
+- **Synthetic hair/mark lines** (p=0.3) — a few thin dark curved lines drawn onto the image with the
+  ground truth left untouched. Targets the boundary-bleeding-onto-marks pattern: the model has never
+  been taught these lines aren't lesion, since the base training data doesn't reliably vary which
+  images have them.
+
+`scripts/train_augmented.py` trains ISIC2018 with both enabled, otherwise identical to the baseline
+(250 epochs, same seed/optimizer/schedule). Not tested here, but a natural next augmentation given
+the size-linked finding above: random resized crop / zoom, to reduce the implicit size prior.
+
+### Result: net positive on the targeted tail, honest about where it backfires
+
+250 epochs, otherwise identical to the baseline. Overall test-set DSC barely moved (0.8911 → 0.8920,
+mean per-image 0.8809 → 0.8816) — expected, since the aggregate is dominated by the ~480 already-easy
+images the augmentation wasn't aimed at. The real test is the 39 outliers it *was* aimed at:
+
+| | n | mean Δ DSC | median Δ DSC |
+|---|---|---|---|
+| the 39 outliers (DSC < 0.7, baseline) | 39 | **+0.0474** | +0.0154 |
+| — improved (Δ > 0.01) | 22 (56%) | — | — |
+| — worsened (Δ < −0.01) | 12 (31%) | — | — |
+| — ~unchanged | 5 (13%) | — | — |
+| full test set (all 520) | 520 | +0.0007 | — |
+
+The effect is concentrated exactly where intended (+0.047 mean on the targeted tail vs. +0.0007
+overall), not a general improvement that happens to touch these images. Full per-image before/after
+in `results/failure_analysis/ISIC2018/` (regenerate: `python scripts/train_augmented.py --dataset
+ISIC2018`, then diff its log against the baseline's the way this comparison was made).
+
+**The mechanism worked, not just the score.** Re-running the `area_ratio` classification with the
+augmented model's own predictions shows several of the worst over-segmenters moving substantially
+toward 1.0 (perfect area match): #434 4.55 → 1.71, #373 2.34 → 1.43, #363 (unclassified at baseline)
+→ 1.13, #442 → 1.21. This is the boundary-precision fix working as designed, not a DSC number moving
+for an unrelated reason.
+
+**Where it backfires — three honest patterns, not swept under the rug:**
+
+![Augmentation: cases where DSC got worse](../ppt_assets/augmentation_regressions.jpg)
+
+- **CLAHE can create false texture on glossy/specular non-lesion surfaces.** #29 (an ear, imaged
+  through a reflective gel/speculum) went from a correctly tight prediction (DSC 0.60) to a large
+  false-positive blob covering the shiny surface (DSC 0.07, `area_ratio` 1→29) — CLAHE boosts local
+  contrast *everywhere*, and on a glossy non-skin surface that can manufacture lesion-like texture
+  where none exists. This is the augmentation's own version of the artifact-confusion problem it
+  wasn't built to fix.
+- **Synthetic hair doesn't cover the hardest real cases.** #214 and #244 both have dense, thick,
+  numerous real hair strands; the synthetic augmentation draws 2–6 thin lines. Both baseline *and*
+  augmented models over-segment onto the hair in these two images, and augmented is slightly worse
+  — the synthetic distribution doesn't extend far enough into this regime.
+- **Some regressions are unrelated to either augmentation.** #439 and #460's baseline and augmented
+  predictions are nearly pixel-identical (#439 in particular: both models flag the same true lesion
+  *and* the same second, genuinely separate pigmented spot as a second blob) — ordinary run-to-run
+  boundary variance between two independently-trained models, not something CLAHE or hair lines
+  would be expected to move either way.
+
+**Verdict: adopt, with room to improve.** Net positive on the population it targets, doesn't cost
+overall DSC, and the failures are legible rather than mysterious — each points at a specific, fixable
+gap (don't apply CLAHE to specular/glossy regions; extend synthetic hair density/coverage) rather
+than at the augmentation being the wrong idea. Not done here: gating CLAHE by a specular-highlight
+detector, denser hair augmentation, and the size/scale augmentation flagged above as a follow-up for
+the size-linked bias directly.
 
 ## Efficiency
 

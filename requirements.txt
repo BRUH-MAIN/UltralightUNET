@@ -50,3 +50,4 @@ huggingface_hub>=0.26
 ipykernel>=6.29
 kaggle>=1.6        # scripts/download_ph2.py -- PH2 is mirrored on Kaggle, not a plain URL
 gradio>=5.0        # demo/app.py
+opencv-python-headless>=4.9   # loader.py's extra_augment=True path (CLAHE, synthetic hair lines)

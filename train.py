@@ -65,7 +65,12 @@ def main(config):
 
 
     print('#----------Preparing dataset----------#')
-    train_dataset = isic_loader(path_Data = config.data_path, train = True)
+    # getattr, not config.extra_augment: setting_config doesn't define this
+    # attribute, so every existing invocation (the replication runs this
+    # repo's results are built on) gets False here, unchanged. Only
+    # scripts/train_augmented.py sets it.
+    train_dataset = isic_loader(path_Data = config.data_path, train = True,
+                                extra_augment = getattr(config, 'extra_augment', False))
     train_loader = DataLoader(train_dataset,
                                 batch_size=config.batch_size, 
                                 shuffle=True,

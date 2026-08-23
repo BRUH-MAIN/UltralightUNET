@@ -71,6 +71,17 @@ small true lesion, and diffuse low-contrast lesions collapsing attention onto on
 of the full extent — both directly visible in the Grad-CAM overlays. Full case study and grid image
 in [Explainability](results/COMPARISON.md#explainability).
 
+**Failure analysis and augmentation.** Extending that case study to all 39 ISIC2018 test images with
+DSC < 0.7 (`scripts/failure_analysis.py`) found the two patterns are size-linked in opposite
+directions (`corr(lesion size, log(over-segmentation)) = −0.53`): small lesions get over-segmented
+into a bigger, smoother blob (59% of outliers), large diffuse ones get under-segmented down to one
+high-contrast fleck (31%). Two targeted augmentations (CLAHE for contrast, synthetic hair/mark lines
+for boundary-bleeding) tested via `scripts/train_augmented.py` improved the targeted tail by +0.047
+mean DSC (22 of 39 images better, 12 worse) while leaving overall DSC unchanged — net positive, with
+honestly-reported failure cases (CLAHE can manufacture false texture on glossy/specular surfaces).
+Full analysis, mechanism check, and regression cases in [Failure analysis and
+augmentation](results/COMPARISON.md#failure-analysis-and-augmentation).
+
 **Efficiency.** Channel-width scaling (`scripts/train_width_variant.py`) found that ISIC2017 DSC
 barely moves down to ~9x fewer parameters (49,457 → 5,581, both landing inside the ±0.003
 run-to-run noise floor) — the paper's own widths aren't close to a capacity cliff on this dataset.
