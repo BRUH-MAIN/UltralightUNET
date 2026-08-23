@@ -4,11 +4,12 @@ Reference: Table 1 of Wu et al., *Patterns* 6, 101298 (2025) — the paper's ISI
 PH2 blocks, all three now replicated. HAM10000 is not one of the paper's three benchmark datasets;
 it's covered in its own section below as an extension beyond the paper's evaluation set.
 
-- [ISIC2017](#isic2017) — the main replication saga (3 runs, split-bias diagnosis and fix)
+- [ISIC2017](#isic2017) — the main replication saga (4 runs: split-bias diagnosis/fix, kernel migration, reproducibility check)
 - [ISIC2018](#isic2018--replication-successful) — second independent replication, clean run
 - [PH2](#ph2--replication-successful-small-test-set-caveat) — third and final paper dataset, tiny test set
 - [HAM10000](#ham10000--generalization-beyond-the-papers-evaluation-set) — no paper target; tests generalization
 - [Cross-dataset summary](#cross-dataset-summary) — all four side by side
+- [Cross-dataset generalization](#cross-dataset-generalization) — zero-shot transfer matrix and findings
 - [Reproducing](#reproducing)
 
 ## ISIC2017
@@ -196,6 +197,44 @@ from the single confusion matrix above.
 This is worth knowing before quoting the paper's precision as a target: it is the one cell in that
 row that no run reproducing the DSC can also match.
 
+## Run 4 — reproducibility check (found incidentally, undocumented until now)
+
+While building the Week 2 cross-dataset generalization sweep (`scripts/cross_eval.py`), the
+checkpoint it auto-selected for ISIC2017 didn't reproduce run 3's DSC — it turned out a second,
+essentially identical run had been sitting undocumented in
+`results/UltraLight_VM_UNet_ISIC2017_Wednesday_19_August_2026_18h_51m_11s/` since 2026-08-19. Same
+seed, same split, same hyperparameters, same `mamba_ssm 2.3.2.post1` fused kernel as run 3 — both
+runs' logs print the identical line `mamba backend: mamba_ssm 2.3.2.post1, fused path:
+mamba_inner_fn (causal_conv1d present)`, so this is not a scan-implementation swap the way run 2 →
+run 3 was. It's the same code, same config, run again two days later.
+
+| metric | run 3 (documented) | run 4 (this) | Δ |
+|---|---|---|---|
+| DSC / F1 | 0.9026 | 0.8993 | −0.0033 |
+| best epoch / val loss | 130 / 0.1960 | 97 / 0.1954 | |
+| test loss | 0.2453 | 0.2492 | |
+
+### Why identical config doesn't mean identical result
+
+`utils.py:set_seed` sets `torch.manual_seed` and pins cuDNN (`cudnn.deterministic = True`,
+`cudnn.benchmark = False`) — but that reaches cuDNN's own convolution kernels, not `mamba_ssm`'s
+hand-written CUDA kernel (`mamba_inner_fn`). Fused scan kernels commonly use atomic-add-based
+reductions for performance, whose accumulation order — and therefore floating-point rounding —
+depends on GPU thread scheduling rather than the RNG seed. `tests/test_mamba_equivalence.py`
+already only checks this kernel against the pure-PyTorch oracle to fp32 *tolerance*, not
+bit-exactness, for the same underlying reason.
+
+Two runs of the exact same code landing 0.0033 DSC apart is a useful number in its own right: it's
+an empirical noise floor for this pipeline. Any single-run "gap vs paper" or "beat the paper" claim
+smaller than roughly this much — which includes ISIC2018's −0.0029 and PH2's +0.0047 above — is
+within normal run-to-run variance, not necessarily a real difference. This doesn't change any
+replication verdict in this document: run 3's 0.71%-of-paper gap and run 4's 1.06% gap are both
+comfortably inside the ±0.01 band set beforehand. It's the honest error bar to attach to every DSC
+number here, and it's why the [cross-dataset generalization matrix](#cross-dataset-generalization)
+below — which needed *a* checkpoint per dataset, not necessarily run 3's — uses run 4 for ISIC2017:
+whichever run a script picks by "most recent," that policy should be applied consistently rather
+than hand-picking the better-looking number after the fact.
+
 ## Remaining known deviations
 
 Even with the split corrected, an exact match is not expected, because the paper's split is
@@ -320,17 +359,71 @@ the other datasets.
 
 | dataset | paper DSC | ours DSC | Δ | test n | per-image std | n below 0.5 DSC |
 |---|---|---|---|---|---|---|
-| ISIC2017 | 0.9091 | 0.9026 | −0.0065 | 600 | — | — |
+| ISIC2017 | 0.9091 | 0.9026 (run 3) | −0.0065 | 600 | — | — |
 | ISIC2018 | 0.8940 | 0.8911 | −0.0029 | 520 | 0.1380 | 16 (3.1%) |
 | PH2 | 0.9265 | 0.9312 | +0.0047 | 40 | 0.0516 | 0 (0%) |
 | HAM10000 | — (not in paper) | 0.9331 | — | 2,003 | 0.0897 | 17 (0.8%) |
 
 All four runs use the identical architecture (49,457 params, 0.0602 GFLOPs) and training recipe;
 only the dataset changes. This completes replication on all three of the paper's benchmark datasets
-(ISIC2017, ISIC2018, PH2) plus one beyond its scope (HAM10000). ISIC2018 is both the lowest-DSC and
-highest-variance of the four, which is the natural next question for a cross-dataset generalization
-study (does a model trained on one dataset transfer to another, and does ISIC2018's higher variance
-persist zero-shot or is it dataset-specific?) — see the project roadmap for planned follow-up work.
+(ISIC2017, ISIC2018, PH2) plus one beyond its scope (HAM10000).
+
+## Cross-dataset generalization
+
+`scripts/cross_eval.py` loads each dataset's best checkpoint and evaluates it — zero-shot, no
+fine-tuning — on every other dataset's test split, reusing `engine.test_one_epoch` for every cell
+so results are directly comparable to every in-domain number elsewhere in this document. Source
+checkpoints: ISIC2018/PH2/HAM10000 use each dataset's only run; ISIC2017 uses **run 4** (DSC 0.8993
+in-domain, not run 3's 0.9026 — see the [reproducibility note](#run-4--reproducibility-check-found-incidentally-undocumented-until-now)
+above for why, and why that's the right call rather than hand-picking run 3).
+
+### DSC matrix
+
+| trained on ↓ / evaluated on → | ISIC2017 | ISIC2018 | PH2 | HAM10000 | avg (off-diag) |
+|---|---|---|---|---|---|
+| ISIC2017 | **0.8993** | 0.8885 | 0.9038 | 0.8895 | 0.8939 |
+| ISIC2018 | 0.9074 | **0.8911** | 0.9094 | 0.9034 | **0.9067** |
+| PH2 | 0.8082 | 0.7834 | **0.9312** | 0.7831 | 0.7916 |
+| HAM10000 | 0.8496 | 0.8438 | 0.9079 | **0.9331** | 0.8671 |
+| avg (off-diag) | 0.8551 | 0.8386 | **0.9070** | 0.8587 | |
+
+Bold on the diagonal = in-domain (each dataset's own already-recorded result, reproduced here as a
+sanity check that this sweep's plumbing matches `test.py`'s — it does, to 4 decimals, for
+ISIC2018/PH2/HAM10000). Full per-cell mIoU/accuracy/sensitivity/specificity in
+`results/cross_eval/cross_eval_matrix.csv`.
+
+### Findings
+
+**ISIC2018 is the best source and the hardest target — the same trait explains both.** Averaged
+over the other three datasets, an ISIC2018-trained model scores 0.9067 DSC — the best of any source,
+and on ISIC2017 (0.9074) it even beats ISIC2017's own in-domain result (0.8993). But ISIC2018 is
+also the hardest *target*: models trained elsewhere average only 0.8386 DSC on it, the worst column
+in the table. Week 1 already flagged ISIC2018 as the highest-variance dataset (per-image DSC std
+0.1380, 3.1% of test images below 0.5 DSC — see above). That diversity looks like it cuts both ways:
+training on a more heterogeneous dataset teaches more transferable features (good source), while
+a more heterogeneous *test* set is harder for a model that hasn't seen that diversity to match (hard
+target). Same underlying property, opposite consequence depending which side of the split it's on.
+
+**PH2 generalizes worst as a source, by a wide margin.** A PH2-trained model averages only 0.7916
+DSC elsewhere — 0.12–0.15 DSC below its own in-domain 0.9312, and clearly the worst row in the
+table. The likely driver isn't (only) domain-specificity: PH2's train split is 140 images, ~9x
+smaller than ISIC2017's 1,250 and ~50x smaller than HAM10000's 7,010, so this may simply be too
+little data for the model to learn features beyond what one small, single-clinic dermoscopy archive
+looks like. Dataset size and domain narrowness are confounded here and this sweep can't separate
+them — a controlled experiment (subsample ISIC2018 to 140 images, retrain, retest) would.
+
+**PH2 is the easiest target regardless of source.** Every other dataset's model scores its highest
+or near-highest off-diagonal DSC *on* PH2 (ISIC2017→PH2 0.9038, ISIC2018→PH2 0.9094, HAM10000→PH2
+0.9079 — all higher than those same models score on ISIC2017, ISIC2018, or HAM10000). Combined with
+PH2 having zero test images below 0.7 DSC even in-domain (Week 1), the simplest explanation is that
+PH2 itself is simply an easy, clean, low-variance test set — a single-source clinical release rather
+than a crowd-sourced, multi-source challenge archive — not that PH2-trained models are special.
+
+**More training data doesn't automatically mean better transfer.** HAM10000 has by far the largest
+train split (7,010 images) but only the third-best generalization average (0.8671) — worse than
+ISIC2018's 0.9067 despite ISIC2018 having 4x fewer training images. Scale alone doesn't predict
+transfer quality here; dataset diversity (per the ISIC2018 finding above) looks like the better
+predictor, though with only four datasets this is a pattern to note, not a claim to lean on hard.
 
 ## Reproducing
 

@@ -18,7 +18,7 @@ Prec 0.9481, at 0.049 M params / 0.060 GFLOPs.
 | GFLOPs | 0.060 | **0.0602** | see note below |
 | selective scan | `mamba_ssm` | **`mamba_ssm` 2.3.2.post1** | the paper's fused CUDA kernel |
 | equivalence tests | — | 44/44 pass | kernel vs. reference scan: init bit-exact, fwd/grads to fp32 tolerance |
-| ISIC2017 DSC | 0.9091 | **0.9026** | **−0.0065 — replicated** |
+| ISIC2017 DSC | 0.9091 | **0.9026** | **−0.0065 — replicated** (±0.003 run-to-run, see below) |
 | ISIC2018 DSC | 0.8940 | **0.8911** | **−0.0029 — replicated** |
 | PH2 DSC | 0.9265 | **0.9312** | **+0.0047 — replicated** (40-image test set, see caveat below) |
 | HAM10000 DSC | — (not in paper) | **0.9331** | generalization beyond the paper's evaluation set |
@@ -40,6 +40,13 @@ gave train/val/test lesion areas of 22.9% / 8.0% / 15.0%, since ISIC IDs correla
 source); a seeded permutation fixed the balance to 20.0% / 17.6% / 18.6% and recovered +0.0348 DSC.
 Full analysis in [results/COMPARISON.md](results/COMPARISON.md).
 
+**Run-to-run noise floor.** A later, identical rerun of run 3 (same seed, same code, same fused
+kernel) landed at DSC 0.8993 instead of 0.9026 — a 0.0033 gap from GPU-kernel-level
+non-determinism that `torch.manual_seed`/`cudnn.deterministic` doesn't reach. That's the honest
+error bar on every DSC number in this document; see [the reproducibility
+note](results/COMPARISON.md#run-4--reproducibility-check-found-incidentally-undocumented-until-now)
+for the full diagnosis.
+
 **ISIC2018, PH2, and HAM10000.** The same architecture and recipe also replicate the paper's
 ISIC2018 (0.29% DSC gap) and PH2 (+0.47%, though PH2's test set is only 40 images — see the caveat
 in COMPARISON.md) results, completing all three of the paper's benchmark datasets, and generalize to
@@ -47,6 +54,15 @@ HAM10000 — a dataset the paper never evaluates on — at DSC 0.9331, the highe
 ISIC2018 shows notably higher per-image variance (std 0.1380) and more low-Dice outliers than the
 other three; see the [cross-dataset summary](results/COMPARISON.md#cross-dataset-summary) for
 details and per-image breakdowns.
+
+**Cross-dataset generalization.** Zero-shot evaluation of each dataset's model on the other three
+(`scripts/cross_eval.py`) found that ISIC2018 is simultaneously the best *source* domain (0.9067
+DSC averaged over the other three, beating even ISIC2017's own in-domain score) and the hardest
+*target* (0.8386 average from outside models) — the same per-image diversity that makes it noisy to
+evaluate on also makes it a better training signal. PH2 generalizes worst as a source (0.7916,
+plausibly confounded with its 140-image train set) but is the easiest target regardless of source.
+Full matrix and findings in
+[Cross-dataset generalization](results/COMPARISON.md#cross-dataset-generalization).
 
 > **On GFLOPs.** thop reads **0.0602** against the paper's 0.060 — three decimals, straight off the
 > measurement, and for a reason worth stating explicitly. thop can only count operations that pass

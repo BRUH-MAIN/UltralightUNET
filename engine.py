@@ -121,7 +121,8 @@ def test_one_epoch(test_loader,
                     criterion,
                     logger,
                     config,
-                    test_data_name=None):
+                    test_data_name=None,
+                    save_outputs=True):
     # switch to evaluate mode
     model.eval()
     preds = []
@@ -140,7 +141,8 @@ def test_one_epoch(test_loader,
                 out = out[0]
             out = out.squeeze(1).cpu().detach().numpy()
             preds.append(out)
-            save_imgs(img, msk, out, i, config.work_dir + 'outputs/', config.datasets, config.threshold, test_data_name=test_data_name)
+            if save_outputs:
+                save_imgs(img, msk, out, i, config.work_dir + 'outputs/', config.datasets, config.threshold, test_data_name=test_data_name)
 
             # PATCH: per-image DSC, tagged with the same index `i` used for the
             # outputs/{i}.png overlay above, so failure cases can be
