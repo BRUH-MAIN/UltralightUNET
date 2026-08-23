@@ -64,6 +64,13 @@ plausibly confounded with its 140-image train set) but is the easiest target reg
 Full matrix and findings in
 [Cross-dataset generalization](results/COMPARISON.md#cross-dataset-generalization).
 
+**Explainability.** `scripts/explainability.py` produces spatial-attention and Seg-Grad-CAM maps for
+any test image. Run on ISIC2018's 4 worst and 4 best test images, the failures split into two
+distinct patterns: bright imaging artifacts (glare, colored gauze) pulling attention away from a
+small true lesion, and diffuse low-contrast lesions collapsing attention onto one small fleck instead
+of the full extent — both directly visible in the Grad-CAM overlays. Full case study and grid image
+in [Explainability](results/COMPARISON.md#explainability).
+
 > **On GFLOPs.** thop reads **0.0602** against the paper's 0.060 — three decimals, straight off the
 > measurement, and for a reason worth stating explicitly. thop can only count operations that pass
 > through an `nn.Module.forward`, and on the fused path Mamba's internals never do: `mamba_inner_fn`

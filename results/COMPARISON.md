@@ -10,6 +10,7 @@ it's covered in its own section below as an extension beyond the paper's evaluat
 - [HAM10000](#ham10000--generalization-beyond-the-papers-evaluation-set) — no paper target; tests generalization
 - [Cross-dataset summary](#cross-dataset-summary) — all four side by side
 - [Cross-dataset generalization](#cross-dataset-generalization) — zero-shot transfer matrix and findings
+- [Explainability](#explainability) — attention/Seg-Grad-CAM case study, two ISIC2018 failure modes
 - [Reproducing](#reproducing)
 
 ## ISIC2017
@@ -424,6 +425,65 @@ train split (7,010 images) but only the third-best generalization average (0.867
 ISIC2018's 0.9067 despite ISIC2018 having 4x fewer training images. Scale alone doesn't predict
 transfer quality here; dataset diversity (per the ISIC2018 finding above) looks like the better
 predictor, though with only four datasets this is a pattern to note, not a claim to lean on hard.
+
+## Explainability
+
+`scripts/explainability.py` produces two views of what the model attends to, neither requiring a
+model change: (1) the spatial attention map `SC_Att_Bridge` already computes internally at its
+shallowest skip-connection level, read via a forward hook; (2) Seg-Grad-CAM (Vinogradova et al.
+2020) — backpropagate the sum of predicted-foreground probability into the last feature map before
+the 1x1 output conv, captured via a forward pre-hook on `model.final`, no model edits needed there
+either. Case study: the ISIC2018 model on its own 4 worst and 4 best test images by per-image DSC
+(from the [per-image variance](#per-image-variance) section above).
+
+![ISIC2018 explainability grid, worst to best](../ppt_assets/explainability_grid_isic2018.jpg)
+
+*(regenerate the full-resolution PNG with
+`python scripts/explainability.py --dataset ISIC2018 --indices 42 359 40 347 123 338 444 501`;
+the tracked copy above is a compressed JPEG for repo size)*
+
+### Two distinct failure modes, not one
+
+The four low-DSC cases split cleanly into two different failure patterns, both visible in the
+Seg-Grad-CAM column:
+
+- **Over-segmentation from imaging artifacts (#42, DSC 0.051; #359, DSC 0.068).** Both images have a
+  large non-lesion, high-salience region in frame — a bright specular reflection off the dermoscope
+  contact plate in #42, a bright magenta gauze/backing sheet in #359 — next to a small, comparatively
+  low-contrast true lesion. In both cases Grad-CAM lights up the bright artifact, not the small true
+  lesion, and the predicted mask follows: a large blob covering the artifact region instead of the
+  small ground-truth blob.
+- **Under-segmentation from diffuse, low-contrast lesions (#40, DSC 0.078; #347, DSC 0.228).** Here
+  the true lesion is a broad area with a gradual, low-contrast boundary. Grad-CAM in both cases
+  collapses onto a single small, high-local-contrast fleck inside the true lesion rather than the
+  full diffuse region, and the prediction is correspondingly a tiny blob instead of matching the
+  true extent.
+
+The four high-DSC cases (0.987–0.989) look qualitatively different from both failure modes: Grad-CAM
+lights up the *entire* lesion region fairly uniformly, closely tracking its true boundary, for
+lesions that are reasonably high-contrast against the surrounding skin with no competing bright
+artifact in frame. That's a common thread across all four good examples, not just a property of one.
+
+### Spatial attention vs. Seg-Grad-CAM
+
+The `SC_Att_Bridge` spatial attention map (4th column) is visibly less informative than Grad-CAM
+(5th column) across every image in the grid — it shows a faint, mostly low-level pattern with a
+grid-like artifact near the image borders (a `Spatial_Att_Bridge` conv with `padding=9, dilation=3`
+on a 7x7 kernel, at H/2 resolution upsampled 2x, is the likely source), rather than object-level
+localization. That's a real characterization of the architecture, not a bug in the extraction: the
+shallowest attention gate operates on low-level encoder features before any PVM/Mamba layer has run,
+so there's no reason to expect it to already encode "where the lesion is" the way a feature map two
+stages deeper (Grad-CAM's target layer) does.
+
+### Caveat
+
+Eight images (four failure, four success) is enough to characterize *these* failure modes, not to
+claim they're exhaustive or representative of ISIC2018's full 16-below-0.5-DSC population — the
+other 12 low-Dice test images aren't inspected here. Both identified patterns (bright artifact
+confusion, diffuse-boundary under-segmentation) are plausible root causes for ISIC2018's higher
+per-image variance relative to the other three datasets, but confirming that at scale would need
+running this same analysis over all 16 outliers, which `scripts/explainability.py --indices` supports
+directly.
 
 ## Reproducing
 
