@@ -18,6 +18,7 @@ from torch.utils.data import DataLoader
 from loader import *
 
 from models.UltraLight_VM_UNet import UltraLight_VM_UNet
+from models.UNet import UNet
 from engine import *
 import os
 os.environ["CUDA_VISIBLE_DEVICES"] = "0" # "0, 1, 2, 3"
@@ -69,12 +70,17 @@ def main(config, weights=None, work_dir=None):
 
 
     print('#----------Prepareing Models----------#')
-    model_cfg = config.model_config    
-    model = UltraLight_VM_UNet(num_classes=model_cfg['num_classes'], 
-                               input_channels=model_cfg['input_channels'], 
-                               c_list=model_cfg['c_list'], 
-                               split_att=model_cfg['split_att'], 
-                               bridge=model_cfg['bridge'],)
+    model_cfg = config.model_config
+    if config.network == 'UNet':  # baseline, see train.py
+        model = UNet(num_classes=model_cfg['num_classes'],
+                     input_channels=model_cfg['input_channels'],
+                     base=model_cfg['base'])
+    else:
+        model = UltraLight_VM_UNet(num_classes=model_cfg['num_classes'],
+                                   input_channels=model_cfg['input_channels'],
+                                   c_list=model_cfg['c_list'],
+                                   split_att=model_cfg['split_att'],
+                                   bridge=model_cfg['bridge'],)
     
     model = model.cuda()  # PATCH: single GPU, no DataParallel wrapper
 

@@ -12,6 +12,8 @@ Differences from upstream's train.py, none of which change the result:
     drop_last=True, so a non-divisor silently discards images.
   * a preflight that fails loudly when torch or the mamba_ssm kernel has no cubin
     for this GPU, rather than 20 minutes into a run.
+  * config.network == 'UNet' builds the plain U-Net baseline (models/UNet.py)
+    instead; any other value, including the default, builds UltraLight VM-UNet.
 
 No change to the model, the optimiser, the schedule, or any hyperparameter that
 affects the result.
@@ -23,6 +25,7 @@ from torch.utils.data import DataLoader
 from loader import *
 
 from models.UltraLight_VM_UNet import UltraLight_VM_UNet
+from models.UNet import UNet
 from engine import *
 import os
 os.environ["CUDA_VISIBLE_DEVICES"] = "0" # "0, 1, 2, 3"
@@ -105,11 +108,16 @@ def main(config):
 
     print('#----------Prepareing Models----------#')
     model_cfg = config.model_config
-    model = UltraLight_VM_UNet(num_classes=model_cfg['num_classes'], 
-                               input_channels=model_cfg['input_channels'], 
-                               c_list=model_cfg['c_list'], 
-                               split_att=model_cfg['split_att'], 
-                               bridge=model_cfg['bridge'],)
+    if config.network == 'UNet':  # baseline, driven by scripts/train_unet.py
+        model = UNet(num_classes=model_cfg['num_classes'],
+                     input_channels=model_cfg['input_channels'],
+                     base=model_cfg['base'])
+    else:
+        model = UltraLight_VM_UNet(num_classes=model_cfg['num_classes'],
+                                   input_channels=model_cfg['input_channels'],
+                                   c_list=model_cfg['c_list'],
+                                   split_att=model_cfg['split_att'],
+                                   bridge=model_cfg['bridge'],)
     
     # PATCH: single GPU, so the DataParallel wrapper is dropped and the '.module'
     # indirection below goes with it. Checkpoints are therefore written with plain
