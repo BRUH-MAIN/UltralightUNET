@@ -1,8 +1,8 @@
 # S1-M -- FIRST block (decided 2026-11-18): is Mamba load-bearing?
-# Motivation: the earlier bespoke-pipeline study (pvm3D, 3 seeds, 7 MSD datasets) found that
-# zeroing the Mamba output of trained PVM models changes DSC by ~0, and that residual depth-3
-# models drive the Mamba/skip ratio to ~0. If that holds here too, the paper must be framed
-# around it (roadmap Gate B), so this is decided before the big benchmark is spent.
+# Motivation (roadmap findings 7-8): the inherited UltraLight init starts PVM's Mamba with a
+# ~1.4-token memory and an output ~1e-3 of its skip path, so it may end up bypassed -- as
+# U-Mamba's was in nnU-Net Revisited. If it is, the paper must be framed around that
+# (roadmap Gate B), so this is decided before the big benchmark is spent.
 # Open-access datasets only (no registration): Hippocampus 5-fold, LiTS + AMOS fold 0.
 # Afterwards: scripts/mamba_knockout.py on every PVM run (inference only).
 4   3d_fullres  0-4  nnUNetTrainerPVM3D_S_ref              # PVM-3D-S as designed

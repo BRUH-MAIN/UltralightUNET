@@ -87,14 +87,11 @@ is the only way the benchmark fits in a month.
      MR (Ingenia).
    - Modality is now read from the images (`convert_datasets.py verify` writes `modality.json`; CT = Hounsfield
      values below −200), and E8 uses that map.
-7. **Prior evidence that Mamba is bypassed** (the earlier bespoke-pipeline study `BRUH-MAIN/pvm3D`, 3 seeds,
-   7 MSD datasets, read 2026-11-18).
-   - Zeroing every PVM layer's Mamba output in trained models changes val DSC by about 0.
-   - Exceptions are Liver and BrainTumour residual models, at about +0.015–0.019 ± 0.023.
-   - In residual depth-3 models the Mamba/skip output ratio is 0.00–0.07.
-   - Their best variant's gains over plain PVM (+0.09 to +0.15 DSC) came from depth and residual blocks. Removing
-     Mamba from it costs nothing, the same pattern nnU-Net Revisited found for U-Mamba.
-   - **H4 is therefore the make-or-break hypothesis**, and it now has prior evidence against it.
+7. **H4 (Mamba is load-bearing) is the make-or-break hypothesis.**
+   - nnU-Net Revisited found that U-Mamba's gains came from its residual blocks, not its Mamba layers.
+   - Finding 8 gives a concrete reason PVM's Mamba may be unused here too.
+   - Whether it is gets tested first (S1_mamba: retraining ablations plus inference-time knockout), before the
+     benchmark budget is spent.
 8. **A likely mechanism: the inherited init cripples Mamba** (verified on `pvm3d/network.py`).
    - UltraLight's `_init_weights` (kept for fidelity to the 2D original) re-initialises Mamba's projections
      (std 0.02) and sets `dt_proj.bias` to 0, ignoring mamba_ssm's `_no_reinit` marker.
@@ -110,9 +107,8 @@ is the only way the benchmark fits in a month.
    - `scripts/mamba_knockout.py` reports the knockout drop, the output ratio, and the learned memory horizon for
      every trained PVM run.
 9. **DD-PVM novelty is weak.**
-    - pvm3D already tried a zero-parameter per-branch "cross" scan: 2 axis orders × 2 directions, which is VMamba's
-      2D cross-scan carried to 3D. The result was inconclusive (n=3, within noise).
-    - SegMamba's tri-orientation is published prior art.
+    - VMamba's 2D cross-scan (2 axis orders × 2 directions) carries straight over to 3D as a zero-parameter
+      per-branch scan (our `cross` mode), and SegMamba's tri-orientation is published prior art.
     - DD-PVM (3 distinct axis orders + 1 reversal) is a variant, so it is an ablation axis (A4, now including
       `_S_cross`), not a headline contribution.
     - If A9 succeeds, the init/bypass mechanism is the stronger contribution.
@@ -278,7 +274,7 @@ ACDC for A1/A3/A4.
 | A1 Mamba load-bearing? | `noMamba`, `convMixer` |
 | A2 branches | `br1`, `br2`, (ref = 4), `br8` |
 | A3 weight sharing | `unshared` |
-| A4 scan order | `dd`, `cross` (pvm3D's), `bidir`, `tri`, `random` |
+| A4 scan order | `dd`, `cross` (VMamba-style), `bidir`, `tri`, `random` |
 | A5 placement | `enc2dec1` (legacy), `encAll` |
 | A6 bridge | `bridgeNone`, `bridgeSpatial`, `bridgeChannel` |
 | A7 recipe | `AdamWCos50` (2D paper's), `noDS` |

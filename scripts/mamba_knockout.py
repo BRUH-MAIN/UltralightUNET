@@ -7,10 +7,9 @@ PVMLayer3D's Mamba output replaced by zeros (the layer's skip path
 DSC drop. It also records, per PVM layer, the ratio
 ||Mamba output|| / ||skip_scale * x|| on the as-trained pass.
 
-This reproduces the diagnostic of the earlier bespoke-pipeline study
-(pvm3D, results/diagnostics/mamba_knockout), which found drops of ~0 DSC and
-near-zero Mamba/skip ratios in deeper residual models, i.e. the network had
-learned to route around Mamba. It complements -- it does not replace -- the
+A drop of ~0 together with a small Mamba/skip ratio means the network has
+learned to route around Mamba (roadmap finding 8 gives a likely reason: the
+inherited init starts Mamba with a ~1.4-token memory). It complements -- it does not replace -- the
 retraining ablations A1 (``_S_noMamba``, ``_S_convMixer``): a knockout shows
 whether a trained network *depends* on Mamba; A1 shows whether training *with*
 Mamba buys anything.

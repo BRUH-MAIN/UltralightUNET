@@ -96,9 +96,9 @@ class PVMLayer3D(nn.Module):
 
     Defaults reproduce the legacy PVMLayer exactly. Ablation knobs:
       scan        raster | dd (direction-diverse: branch k scans orientation k%4,
-                  zero extra cost) | cross (the earlier pvm3D study's scan: raster,
-                  reversed raster, axes-reversed, axes-reversed+reversed -- 2 axis
-                  orders x 2 directions; VMamba's 2D cross-scan carried to 3D)
+                  zero extra cost) | cross (raster, reversed raster, axes-reversed,
+                  axes-reversed+reversed -- 2 axis orders x 2 directions; VMamba's
+                  2D cross-scan carried to 3D)
                   | bidir (fwd+reverse per branch, 2x scan cost)
                   | tri (3 axis orientations per branch, 3x) | random (fixed
                   random token permutation per branch -- control for whether a
