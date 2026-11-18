@@ -50,7 +50,7 @@ except ImportError:  # pragma: no cover
     from timm.models.layers import trunc_normal_
 
 
-SCAN_MODES = ('raster', 'dd', 'bidir', 'tri', 'random')
+SCAN_MODES = ('raster', 'dd', 'cross', 'bidir', 'tri', 'random')
 MIXERS = ('mamba', 'identity', 'conv')
 BRIDGE_MODES = ('both', 'spatial', 'channel', 'none')
 
@@ -96,17 +96,23 @@ class PVMLayer3D(nn.Module):
 
     Defaults reproduce the legacy PVMLayer exactly. Ablation knobs:
       scan        raster | dd (direction-diverse: branch k scans orientation k%4,
-                  zero extra cost) | bidir (fwd+reverse per branch, 2x scan cost)
+                  zero extra cost) | cross (the earlier pvm3D study's scan: raster,
+                  reversed raster, axes-reversed, axes-reversed+reversed -- 2 axis
+                  orders x 2 directions; VMamba's 2D cross-scan carried to 3D)
+                  | bidir (fwd+reverse per branch, 2x scan cost)
                   | tri (3 axis orientations per branch, 3x) | random (fixed
                   random token permutation per branch -- control for whether a
                   spatially coherent scan matters)
       n_branches  channel split count (legacy 4)
       share_weights  one Mamba for all branches (legacy) vs. one per branch
       mixer       mamba | identity (Mamba removed, LN+proj kept) | conv
+      inner_skip  keep the ``skip_scale * x`` bypass around the mixer (legacy).
+                  False forces every branch's information through the mixer --
+                  the test for whether Mamba can carry the signal at all.
     """
     def __init__(self, input_dim, output_dim, d_state=16, d_conv=4, expand=2,
                  scan='raster', n_branches=4, share_weights=True, mixer='mamba',
-                 mamba_impl='mamba_ssm', random_seed=0):
+                 mamba_impl='mamba_ssm', random_seed=0, inner_skip=True):
         super().__init__()
         assert scan in SCAN_MODES, scan
         assert mixer in MIXERS, mixer
@@ -127,7 +133,8 @@ class PVMLayer3D(nn.Module):
         elif mixer == 'conv':
             self.convmix = nn.ModuleList([_ConvMixer(d) for _ in range(n_mods)])
         self.proj = nn.Linear(input_dim, output_dim)
-        self.skip_scale = nn.Parameter(torch.ones(1))
+        self.inner_skip = inner_skip
+        self.skip_scale = nn.Parameter(torch.ones(1)) if inner_skip else None
         self._perm_cache = {}
 
     # --- scan orders -------------------------------------------------------
@@ -158,6 +165,11 @@ class PVMLayer3D(nn.Module):
                 choice = k % 4
                 out.append([None] if choice == 0 else [pair(o1)] if choice == 1
                            else [pair(o2)] if choice == 2 else [pair(rev)])
+            elif self.scan == 'cross':
+                ax = self._orient_perm(spatial, (2, 1, 0), device)  # all axes reversed: D fastest, W slowest
+                choice = k % 4
+                out.append([None] if choice == 0 else [pair(rev)] if choice == 1
+                           else [pair(ax)] if choice == 2 else [pair(ax.flip(0))])
             elif self.scan == 'bidir':
                 out.append([None, pair(rev)])
             elif self.scan == 'tri':
@@ -214,7 +226,10 @@ class PVMLayer3D(nn.Module):
         x_norm = self.norm(x_flat)
         xs = torch.chunk(x_norm, self.n_branches, dim=2)
         ys = self._mix(xs, spatial)
-        x_m = torch.cat([y + self.skip_scale * xk for y, xk in zip(ys, xs)], dim=2)
+        if self.inner_skip:
+            x_m = torch.cat([y + self.skip_scale * xk for y, xk in zip(ys, xs)], dim=2)
+        else:
+            x_m = torch.cat(ys, dim=2)
         x_m = self.proj(self.norm(x_m))
         return x_m.transpose(-1, -2).reshape(B, self.output_dim, *spatial)
 
@@ -275,7 +290,8 @@ class PVMUNet3D(nn.Module):
                  n_pvm_enc: int = 3, n_pvm_dec: int = 3, bridge: str = 'both',
                  deep_supervision: bool = False, scan: str = 'raster', n_branches: int = 4,
                  share_weights: bool = True, mixer: str = 'mamba', d_state: int = 16,
-                 expand: int = 2, mamba_impl: str = 'mamba_ssm'):
+                 expand: int = 2, mamba_impl: str = 'mamba_ssm', mamba_init: str = 'ultralight',
+                 inner_skip: bool = True):
         super().__init__()
         n = len(widths)
         assert len(strides) == n, f'{len(strides)} strides for {n} stages'
@@ -294,9 +310,10 @@ class PVMUNet3D(nn.Module):
         self.config = dict(widths=list(widths), strides=strides, kernel_sizes=kernel_sizes,
                            n_pvm_enc=n_pvm_enc, n_pvm_dec=n_pvm_dec, bridge=bridge, scan=scan,
                            n_branches=n_branches, share_weights=share_weights, mixer=mixer,
-                           d_state=d_state, expand=expand)
+                           d_state=d_state, expand=expand, mamba_init=mamba_init, inner_skip=inner_skip)
+        assert mamba_init in ('ultralight', 'native'), mamba_init
         pvm_kw = dict(d_state=d_state, expand=expand, scan=scan, n_branches=n_branches,
-                      share_weights=share_weights, mixer=mixer, mamba_impl=mamba_impl)
+                      share_weights=share_weights, mixer=mixer, mamba_impl=mamba_impl, inner_skip=inner_skip)
 
         def conv(cin, cout, k):
             return nn.Conv3d(cin, cout, k, padding=[kk // 2 for kk in k])
@@ -327,7 +344,15 @@ class PVMUNet3D(nn.Module):
         # extra deep-supervision heads at R_1..R_{n-3}; R_0 reuses self.final
         self.ds_heads = nn.ModuleList([nn.Conv3d(widths[j], num_classes, 1) for j in range(1, n - 2)])
 
-        self.apply(self._init_weights)
+        if mamba_init == 'ultralight':
+            # legacy: re-initialises Mamba's own Linear/Conv1d too, which leaves its
+            # output ~1e-3 of the skip path at init (vs ~3e-2 with Mamba's own init)
+            self.apply(self._init_weights)
+        else:  # 'native': everything except the Mamba internals, which keep mamba_ssm's init
+            inside = [n for n, m in self.named_modules() if type(m).__name__ == 'Mamba']
+            for n, m in self.named_modules():
+                if not any(n == q or n.startswith(q + '.') for q in inside):
+                    self._init_weights(m)
 
     def _init_weights(self, m):  # identical to models/UltraLight_VM_UNet_3D.py
         if isinstance(m, nn.Linear):

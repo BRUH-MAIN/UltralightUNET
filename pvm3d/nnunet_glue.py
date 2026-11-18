@@ -40,7 +40,10 @@ def build_pvm_from_plans(cfg: dict, configuration_manager, num_input_channels, n
         n_pvm_enc=min(cfg['n_pvm_enc'], n - 1), n_pvm_dec=min(cfg['n_pvm_dec'], n - 1),
         bridge=cfg['bridge'], deep_supervision=enable_deep_supervision, scan=cfg['scan'],
         n_branches=cfg['n_branches'], share_weights=cfg['share_weights'], mixer=cfg['mixer'],
-        d_state=cfg['d_state'], expand=cfg['expand'], mamba_impl=cfg.get('mamba_impl', 'mamba_ssm'))
+        d_state=cfg['d_state'], expand=cfg['expand'], mamba_impl=cfg.get('mamba_impl', 'mamba_ssm'),
+        # optional keys: absent from existing trainers' PVM dicts, so their recorded
+        # pvm_config.json (and the resume guard) are unchanged
+        mamba_init=cfg.get('mamba_init', 'ultralight'), inner_skip=cfg.get('inner_skip', True))
 
 
 def unwrap(module):

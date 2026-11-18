@@ -212,3 +212,35 @@ def test_pytorch_backend_matches_kernel_dd_scan():
     b.load_state_dict(a.state_dict())
     x = torch.randn(2, 32, 4, 6, 5, device='cuda')
     torch.testing.assert_close(b(x), a(x), rtol=1e-4, atol=1e-5)
+
+
+@cuda_only
+def test_native_mamba_init_keeps_mamba_output_alive():
+    """The inherited UltraLight init re-initialises Mamba's projections (std 0.02),
+    leaving its output ~1e-3 of the skip path at init; 'native' keeps mamba_ssm's
+    own init (~3e-2). This is what ablation A9 (_S_nativeInit) tests."""
+    def ratio(net):
+        r = []
+        hs = [mb.register_forward_hook(lambda m, i, o, l=l: r.append((o.norm() / (l.skip_scale * i[0]).norm()).item()))
+              for l in net.modules() if isinstance(l, PVMLayer3D) for mb in l.mamba]
+        with torch.no_grad():
+            net(torch.randn(1, 1, 64, 64, 64, device='cuda'))
+        for h in hs:
+            h.remove()
+        return sum(r) / len(r)
+    torch.manual_seed(0)
+    ul = ratio(PVMUNet3D(1, 3, **legacy_config()).cuda().eval())
+    torch.manual_seed(0)
+    nat = ratio(PVMUNet3D(1, 3, mamba_init='native', **legacy_config()).cuda().eval())
+    assert ul < 5e-3 and nat > 10 * ul, (ul, nat)
+
+
+def test_no_inner_skip_routes_everything_through_mixer():
+    net = PVMLayer3D(16, 16, inner_skip=False, mamba_impl='pytorch')
+    assert net.skip_scale is None
+    with torch.no_grad():
+        for p in net.mamba.parameters():
+            p.zero_()
+    x = torch.randn(1, 16, 3, 4, 5)
+    # with the mixer silenced and no bypass, the output is proj(norm(0)) = proj bias, input-independent
+    torch.testing.assert_close(net(x), net(torch.randn_like(x)))

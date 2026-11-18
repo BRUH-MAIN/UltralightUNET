@@ -94,7 +94,7 @@ _variant('nnUNetTrainerPVM3D_S_ref', S, 'Ablation reference: PVM-3D-S (raster) a
 S_REF = globals()['nnUNetTrainerPVM3D_S_ref']
 _ABLATIONS = {
     # A4 scan order
-    'dd': dict(scan='dd'), 'bidir': dict(scan='bidir'), 'tri': dict(scan='tri'), 'random': dict(scan='random'),
+    'dd': dict(scan='dd'), 'cross': dict(scan='cross'), 'bidir': dict(scan='bidir'), 'tri': dict(scan='tri'), 'random': dict(scan='random'),
     # A1 is Mamba load-bearing?
     'noMamba': dict(mixer='identity'), 'convMixer': dict(mixer='conv'),
     # A2 number of parallel branches
@@ -108,6 +108,10 @@ _ABLATIONS = {
     'bridgeChannel': dict(bridge='channel'),
     # A8 SSM hyperparameters
     'dstate8': dict(d_state=8), 'dstate32': dict(d_state=32), 'expand1': dict(expand=1),
+    # A9 why is Mamba bypassed? (prior bespoke-pipeline runs: knockout drop ~0)
+    'nativeInit': dict(mamba_init='native'),      # Mamba keeps its own init (inherited init: ~50x weaker output)
+    'noInnerSkip': dict(inner_skip=False),        # no skip_scale*x bypass: information must pass through Mamba
+    'nativeInitNoInnerSkip': dict(mamba_init='native', inner_skip=False),
 }
 for _tag, _ov in _ABLATIONS.items():
     _variant(f'nnUNetTrainerPVM3D_S_{_tag}', S_REF, f'Ablation of PVM-3D-S: {_ov}', **_ov)
