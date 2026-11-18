@@ -1,0 +1,16 @@
+# S3 -- remaining ablations (A6, A8; ACDC fold 0), 5-fold ablations for significance, E4 on small datasets
+27  3d_fullres  0    nnUNetTrainerPVM3D_S_bridgeNone
+27  3d_fullres  0    nnUNetTrainerPVM3D_S_bridgeSpatial
+27  3d_fullres  0    nnUNetTrainerPVM3D_S_bridgeChannel
+27  3d_fullres  0    nnUNetTrainerPVM3D_S_dstate8
+27  3d_fullres  0    nnUNetTrainerPVM3D_S_dstate32
+27  3d_fullres  0    nnUNetTrainerPVM3D_S_expand1
+27  3d_fullres  1-4  nnUNetTrainerPVM3D_S_ref               # 5-fold A1/A3/A4 on ACDC
+27  3d_fullres  1-4  nnUNetTrainerPVM3D_S_noMamba
+27  3d_fullres  1-4  nnUNetTrainerPVM3D_S_convMixer
+27  3d_fullres  1-4  nnUNetTrainerPVM3D_S_unshared
+27  3d_fullres  1-4  nnUNetTrainerPVM3D_S_dd
+27  3d_fullres  1-4  nnUNetTrainerPVM3D_S_tri
+4   3d_fullres  0-4  nnUNetTrainerPVM3DFinal_S              # E4 main benchmark
+27  3d_fullres  0-4  nnUNetTrainerPVM3DFinal_S
+17  3d_fullres  0-4  nnUNetTrainerPVM3DFinal_S

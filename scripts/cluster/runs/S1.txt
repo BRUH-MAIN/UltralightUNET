@@ -1,0 +1,11 @@
+# S1 -- Gate A parity, Hippocampus baselines, width pilot, design-independent baselines
+27  3d_fullres  0-4  nnUNetTrainer               weight=2   # Gate A: vs Revisited ACDC 91.54
+220 3d_fullres  0    nnUNetTrainer               weight=2   # Gate A: vs Revisited KiTS (fold 0)
+4   3d_fullres  0-4  nnUNetTrainer               weight=2   # Hippocampus not in Revisited
+27  3d_fullres  0    nnUNetTrainerPVM3D_T                   # E2 width pilot
+27  3d_fullres  0    nnUNetTrainerPVM3D_S
+27  3d_fullres  0    nnUNetTrainerPVM3D_B
+4   3d_fullres  0-4  nnUNetTrainerPVM3D_Legacy              # E1, if not finished on the laptop
+4   3d_fullres  0-4  nnUNetTrainerPVM3D_S
+27  3d_fullres  0-4  nnUNetTrainerLightMUNet                # E6, independent of Gate B
+4   3d_fullres  0-4  nnUNetTrainerLightMUNet

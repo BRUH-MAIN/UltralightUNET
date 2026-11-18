@@ -1,0 +1,9 @@
+# P2 -- only if blocks run ahead of schedule (S9 buffer otherwise)
+4   3d_fullres  0-4  nnUNetTrainerPVM3DFinal_T
+4   3d_fullres  0-4  nnUNetTrainerPVM3DFinal_B
+3   3d_fullres  0-4  nnUNetTrainerPVM3DFinal_T
+3   3d_fullres  0-4  nnUNetTrainerPVM3DFinal_B
+137 3d_fullres  0-4  nnUNetTrainerPVM3DFinal_T
+137 3d_fullres  0-4  nnUNetTrainerPVM3DFinal_B
+17  3d_fullres  0-4  nnUNetTrainerPVM3DFinal_T
+17  3d_fullres  0-4  nnUNetTrainerPVM3DFinal_B

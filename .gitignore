@@ -257,3 +257,11 @@ kaggle.json
 *.fdb_latexmk
 *.fls
 *.vrb
+
+# external baseline code fetched by scripts/cluster/fetch_baselines.sh (not vendored; see its header)
+third_party/
+.venv-cluster/
+.venv-segmamba/
+
+# SLURM job logs (sbatch --output=%x-%j.out in the repo root)
+pvm3d-*.out

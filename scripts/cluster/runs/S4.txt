@@ -1,0 +1,5 @@
+# S4 -- E4 main benchmark on the CT datasets and BraTS
+220 3d_fullres  0-4  nnUNetTrainerPVM3DFinal_S
+219 3d_fullres  0-4  nnUNetTrainerPVM3DFinal_S
+3   3d_fullres  0-4  nnUNetTrainerPVM3DFinal_S
+137 3d_fullres  0-4  nnUNetTrainerPVM3DFinal_S

@@ -1,0 +1,26 @@
+# Dependencies for the PVM-3D journal benchmark (docs/3d_journal_roadmap.md), on top of
+# torch + mamba_ssm (scripts/cluster/setup_env.sh installs those first and pins torch).
+# Self-contained for the 3D pipeline: the 2D demo extras in requirements.txt are not needed.
+#
+# nnunetv2 is pinned: the trainer hooks (build_network_architecture signature,
+# do_split) and nnU-Net's default 5-fold split are what the comparison with the
+# published nnU-Net Revisited numbers relies on.
+#
+# On an environment whose torch comes from somewhere pip did not install it (e.g. the
+# laptop .venv, which inherits torch from a conda env), install nnunetv2 with
+# --no-deps plus its non-torch dependencies, or pip will try to "fix" the CUDA runtime
+# that mamba_ssm was compiled against.
+nnunetv2==2.8.1
+SimpleITK>=2.3
+nibabel>=5.2
+pandas>=2.0
+numpy>=1.26
+scipy>=1.14
+matplotlib>=3.9
+tqdm>=4.66
+timm>=1.0.0
+einops>=0.8.0
+thop>=0.1.1
+pytest>=8.0
+huggingface_hub>=0.26
+monai>=1.3,<1.6   # LightM-UNet baseline (trainers_external.py) builds on MONAI blocks

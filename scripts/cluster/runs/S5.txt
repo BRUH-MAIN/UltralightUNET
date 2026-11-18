@@ -1,0 +1,9 @@
+# S5 -- E5 Pareto family (P0 datasets) + start E6
+27  3d_fullres  0-4  nnUNetTrainerPVM3DFinal_T
+27  3d_fullres  0-4  nnUNetTrainerPVM3DFinal_B
+220 3d_fullres  0-4  nnUNetTrainerPVM3DFinal_T
+220 3d_fullres  0-4  nnUNetTrainerPVM3DFinal_B
+219 3d_fullres  0-4  nnUNetTrainerPVM3DFinal_T
+219 3d_fullres  0-4  nnUNetTrainerPVM3DFinal_B
+27  3d_fullres  0-4  nnUNetTrainerTinyUNet_matchS
+4   3d_fullres  0-4  nnUNetTrainerTinyUNet_matchS

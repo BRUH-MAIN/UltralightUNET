@@ -1,0 +1,31 @@
+# S7 -- P1: SegFormer3D, SegMamba (own venv, div16 plans), E7 data efficiency, E8 AMOS CT->MRI
+4  3d_fullres  0-4  nnUNetTrainerSegFormer3D  plans=nnUNetPlans_div32
+27  3d_fullres  0-4  nnUNetTrainerSegFormer3D  plans=nnUNetPlans_div32
+220  3d_fullres  0-4  nnUNetTrainerSegFormer3D  plans=nnUNetPlans_div32
+219  3d_fullres  0-4  nnUNetTrainerSegFormer3D  plans=nnUNetPlans_div32
+3  3d_fullres  0-4  nnUNetTrainerSegFormer3D  plans=nnUNetPlans_div32
+137  3d_fullres  0-4  nnUNetTrainerSegFormer3D  plans=nnUNetPlans_div32
+17  3d_fullres  0-4  nnUNetTrainerSegFormer3D  plans=nnUNetPlans_div32
+27  3d_fullres  0-4  nnUNetTrainerSegMamba  plans=nnUNetPlans_div16  weight=2  venv=$PVM3D_REPO/.venv-segmamba
+220 3d_fullres  0    nnUNetTrainerSegMamba  plans=nnUNetPlans_div16  weight=2  venv=$PVM3D_REPO/.venv-segmamba
+27  3d_fullres  0  nnUNetTrainerPVM3DFinal_S_frac10
+27  3d_fullres  0  nnUNetTrainer_frac10  weight=2
+27  3d_fullres  0  nnUNetTrainerTinyUNet_matchS_frac10
+27  3d_fullres  0  nnUNetTrainerPVM3DFinal_S_frac25
+27  3d_fullres  0  nnUNetTrainer_frac25  weight=2
+27  3d_fullres  0  nnUNetTrainerTinyUNet_matchS_frac25
+27  3d_fullres  0  nnUNetTrainerPVM3DFinal_S_frac50
+27  3d_fullres  0  nnUNetTrainer_frac50  weight=2
+27  3d_fullres  0  nnUNetTrainerTinyUNet_matchS_frac50
+220  3d_fullres  0  nnUNetTrainerPVM3DFinal_S_frac10
+220  3d_fullres  0  nnUNetTrainer_frac10  weight=2
+220  3d_fullres  0  nnUNetTrainerTinyUNet_matchS_frac10
+220  3d_fullres  0  nnUNetTrainerPVM3DFinal_S_frac25
+220  3d_fullres  0  nnUNetTrainer_frac25  weight=2
+220  3d_fullres  0  nnUNetTrainerTinyUNet_matchS_frac25
+220  3d_fullres  0  nnUNetTrainerPVM3DFinal_S_frac50
+220  3d_fullres  0  nnUNetTrainer_frac50  weight=2
+220  3d_fullres  0  nnUNetTrainerTinyUNet_matchS_frac50
+219 3d_fullres  0  nnUNetTrainerPVM3DFinal_S_CTOnly
+219 3d_fullres  0  nnUNetTrainer_CTOnly  weight=2
+219 3d_fullres  0  nnUNetTrainerTinyUNet_matchS_CTOnly

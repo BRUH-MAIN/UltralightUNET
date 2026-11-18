@@ -1,0 +1,25 @@
+# S6 -- E6 lightweight baselines (P0) on every dataset. Make the div32 plans first:
+#   python scripts/cluster/make_plans_variant.py -d 4 27 220 219 3 137 17 --divisible 32
+220  3d_fullres  0-4  nnUNetTrainerTinyUNet_matchS
+219  3d_fullres  0-4  nnUNetTrainerTinyUNet_matchS
+3  3d_fullres  0-4  nnUNetTrainerTinyUNet_matchS
+137  3d_fullres  0-4  nnUNetTrainerTinyUNet_matchS
+17  3d_fullres  0-4  nnUNetTrainerTinyUNet_matchS
+220  3d_fullres  0-4  nnUNetTrainerLightMUNet
+219  3d_fullres  0-4  nnUNetTrainerLightMUNet
+3  3d_fullres  0-4  nnUNetTrainerLightMUNet
+137  3d_fullres  0-4  nnUNetTrainerLightMUNet
+17  3d_fullres  0-4  nnUNetTrainerLightMUNet
+4  3d_fullres  0-4  nnUNetTrainerSlimUNETR  plans=nnUNetPlans_div32
+27  3d_fullres  0-4  nnUNetTrainerSlimUNETR  plans=nnUNetPlans_div32
+220  3d_fullres  0-4  nnUNetTrainerSlimUNETR  plans=nnUNetPlans_div32
+219  3d_fullres  0-4  nnUNetTrainerSlimUNETR  plans=nnUNetPlans_div32
+3  3d_fullres  0-4  nnUNetTrainerSlimUNETR  plans=nnUNetPlans_div32
+137  3d_fullres  0-4  nnUNetTrainerSlimUNETR  plans=nnUNetPlans_div32
+17  3d_fullres  0-4  nnUNetTrainerSlimUNETR  plans=nnUNetPlans_div32
+27  3d_fullres  0-4  nnUNetTrainerTinyUNet_matchT
+27  3d_fullres  0-4  nnUNetTrainerTinyUNet_matchB
+220  3d_fullres  0-4  nnUNetTrainerTinyUNet_matchT
+220  3d_fullres  0-4  nnUNetTrainerTinyUNet_matchB
+219  3d_fullres  0-4  nnUNetTrainerTinyUNet_matchT
+219  3d_fullres  0-4  nnUNetTrainerTinyUNet_matchB

@@ -1,0 +1,4 @@
+# Before the first cluster block, on the RTX 5060 laptop (~12 s/epoch -> ~3.3 h/fold for PVM-3D-S).
+# E1: does nnU-Net's pipeline/recipe alone close part of the 4.4-pt Hippocampus gap?
+4   3d_fullres  0-4  nnUNetTrainerPVM3D_Legacy
+4   3d_fullres  0-4  nnUNetTrainerPVM3D_S
