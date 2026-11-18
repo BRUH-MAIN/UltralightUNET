@@ -1,0 +1,28 @@
+# S1-M -- FIRST block (decided 2026-11-18): is Mamba load-bearing?
+# Motivation: the earlier bespoke-pipeline study (pvm3D, 3 seeds, 7 MSD datasets) found that
+# zeroing the Mamba output of trained PVM models changes DSC by ~0, and that residual depth-3
+# models drive the Mamba/skip ratio to ~0. If that holds here too, the paper must be framed
+# around it (roadmap Gate B), so this is decided before the big benchmark is spent.
+# Open-access datasets only (no registration): Hippocampus 5-fold, LiTS + AMOS fold 0.
+# Afterwards: scripts/mamba_knockout.py on every PVM run (inference only).
+4   3d_fullres  0-4  nnUNetTrainerPVM3D_S_ref              # PVM-3D-S as designed
+4   3d_fullres  0-4  nnUNetTrainerPVM3D_S_noMamba          # A1: Mamba -> identity
+4   3d_fullres  0-4  nnUNetTrainerPVM3D_S_convMixer        # A1: Mamba -> depthwise-conv mixer
+4   3d_fullres  0-4  nnUNetTrainerPVM3D_S_nativeInit       # A9: Mamba keeps its own init
+4   3d_fullres  0-4  nnUNetTrainerPVM3D_S_noInnerSkip      # A9: no bypass around Mamba
+4   3d_fullres  0-4  nnUNetTrainerPVM3D_S_dd               # A4: does a multi-direction scan make Mamba matter?
+4   3d_fullres  0-4  nnUNetTrainerTinyUNet_matchS          # param-matched plain CNN
+3   3d_fullres  0    nnUNetTrainerPVM3D_S_ref
+3   3d_fullres  0    nnUNetTrainerPVM3D_S_noMamba
+3   3d_fullres  0    nnUNetTrainerPVM3D_S_convMixer
+3   3d_fullres  0    nnUNetTrainerPVM3D_S_nativeInit
+3   3d_fullres  0    nnUNetTrainerPVM3D_S_noInnerSkip
+3   3d_fullres  0    nnUNetTrainerPVM3D_S_dd
+3   3d_fullres  0    nnUNetTrainerTinyUNet_matchS
+219 3d_fullres  0    nnUNetTrainerPVM3D_S_ref
+219 3d_fullres  0    nnUNetTrainerPVM3D_S_noMamba
+219 3d_fullres  0    nnUNetTrainerPVM3D_S_convMixer
+219 3d_fullres  0    nnUNetTrainerPVM3D_S_nativeInit
+219 3d_fullres  0    nnUNetTrainerPVM3D_S_noInnerSkip
+219 3d_fullres  0    nnUNetTrainerPVM3D_S_dd
+219 3d_fullres  0    nnUNetTrainerTinyUNet_matchS

@@ -3,6 +3,9 @@
 One file per 72 h block of docs/3d_journal_roadmap.md §7. Dataset ids:
 4 Hippocampus · 27 ACDC · 220 KiTS2023 · 219 AMOS2022 (task 2) · 3 LiTS (MSD Liver) · 137 BraTS2021 · 17 BTCV.
 
+Order of blocks: **`S1_mamba.txt` first** (is Mamba load-bearing? decides the paper's framing; open data only),
+then `S1.txt` once ACDC/KiTS are on disk, then S2...
+
 `weight=2` marks runs that saturate a GPU on their own (nnU-Net (org.), SegMamba). External baselines that need
 a divisible patch use `plans=nnUNetPlans_div32` / `div16` (scripts/cluster/make_plans_variant.py).
 

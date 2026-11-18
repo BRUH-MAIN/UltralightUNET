@@ -65,9 +65,11 @@ What `verify` checks:
 ## 2. Training
 
 ```bash
-sbatch scripts/cluster/slurm/train.sbatch scripts/cluster/runs/S1.txt 4        # 1 GPU, capacity 4, 24 h
-sbatch scripts/cluster/slurm/train.sbatch scripts/cluster/runs/S1.txt 4        # a 2nd GPU on the same run file
-python scripts/cluster/pack_runs.py scripts/cluster/runs/S1.txt --status        # state/epoch/s-per-epoch/ETA/Dice
+sbatch scripts/cluster/slurm/train.sbatch scripts/cluster/runs/S1_mamba.txt 4  # first block; 1 GPU, capacity 4, 24 h
+sbatch scripts/cluster/slurm/train.sbatch scripts/cluster/runs/S1_mamba.txt 4  # a 2nd GPU on the same run file
+python scripts/cluster/pack_runs.py scripts/cluster/runs/S1_mamba.txt --status  # state/epoch/s-per-epoch/ETA/Dice
+# when its runs finish: Mamba knockout on every PVM run (inference only, GPU job)
+python scripts/mamba_knockout.py -d 4 -tr nnUNetTrainerPVM3D_S_ref -f 0 1 2 3 4
 ```
 
 How jobs behave:
@@ -82,7 +84,7 @@ How jobs behave:
 - **Choosing `--cpus-per-task`:** about 6 per concurrent light run, because data augmentation is CPU-bound.
   `train.sbatch` asks for 24 CPUs for capacity 4.
 
-**First S1 job, which decides capacity and the ablation schedule:**
+**First job (S1_mamba), which also decides capacity and the ablation schedule:**
 1. Watch `--status` s/epoch for the PVM-3D and LightM-UNet runs, and `sacct -j <id> --format=AveCPU,MaxRSS`.
 2. If s/epoch × 1000 > about 8 h for light models, set `ABLATION_EPOCHS = 500` in
    `pvm3d/nnunet_trainers/trainers_pvm3d.py` **before S2**.

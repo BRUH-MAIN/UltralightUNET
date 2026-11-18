@@ -87,7 +87,36 @@ is the only way the benchmark fits in a month.
      MR (Ingenia).
    - Modality is now read from the images (`convert_datasets.py verify` writes `modality.json`; CT = Hounsfield
      values below −200), and E8 uses that map.
-7. **The cluster is SLURM, not a live 72 h block** (2026-11-18). Runs go through `scripts/cluster/slurm/*.sbatch`.
+7. **Prior evidence that Mamba is bypassed** (the earlier bespoke-pipeline study `BRUH-MAIN/pvm3D`, 3 seeds,
+   7 MSD datasets, read 2026-11-18).
+   - Zeroing every PVM layer's Mamba output in trained models changes val DSC by about 0.
+   - Exceptions are Liver and BrainTumour residual models, at about +0.015–0.019 ± 0.023.
+   - In residual depth-3 models the Mamba/skip output ratio is 0.00–0.07.
+   - Their best variant's gains over plain PVM (+0.09 to +0.15 DSC) came from depth and residual blocks. Removing
+     Mamba from it costs nothing, the same pattern nnU-Net Revisited found for U-Mamba.
+   - **H4 is therefore the make-or-break hypothesis**, and it now has prior evidence against it.
+8. **A likely mechanism: the inherited init cripples Mamba** (verified on `pvm3d/network.py`).
+   - UltraLight's `_init_weights` (kept for fidelity to the 2D original) re-initialises Mamba's projections
+     (std 0.02) and sets `dt_proj.bias` to 0, ignoring mamba_ssm's `_no_reinit` marker.
+   - At init this gives a step size of softplus(0) = 0.693 in every channel. **The slowest SSM mode then remembers
+     about 1.4 tokens**, versus a median of 60 (28–258) with mamba_ssm's own init.
+   - Mamba's output also starts at about 1e-3 of the skip path, versus about 3e-2.
+   - So every PVM model built this way, including probably the published 2D one, starts with Mamba as a 1-token
+     local filter.
+   - Ablation **A9** tests whether fixing this makes Mamba matter:
+     - `_S_nativeInit`
+     - `_S_noInnerSkip` (no bypass, so information must pass through Mamba)
+     - the combination of both.
+   - `scripts/mamba_knockout.py` reports the knockout drop, the output ratio, and the learned memory horizon for
+     every trained PVM run.
+9. **DD-PVM novelty is weak.**
+    - pvm3D already tried a zero-parameter per-branch "cross" scan: 2 axis orders × 2 directions, which is VMamba's
+      2D cross-scan carried to 3D. The result was inconclusive (n=3, within noise).
+    - SegMamba's tri-orientation is published prior art.
+    - DD-PVM (3 distinct axis orders + 1 reversal) is a variant, so it is an ablation axis (A4, now including
+      `_S_cross`), not a headline contribution.
+    - If A9 succeeds, the init/bypass mechanism is the stronger contribution.
+10. **The cluster is SLURM, not a live 72 h block** (2026-11-18). Runs go through `scripts/cluster/slurm/*.sbatch`.
    - Several jobs can share one run file safely (per-run locks in `pack_runs.py`), so a second or third GPU
      directly shortens the schedule.
    - The cluster environment is torch 2.10/cu128 with prebuilt mamba wheels; the laptop stays on 2.13.
@@ -249,11 +278,17 @@ ACDC for A1/A3/A4.
 | A1 Mamba load-bearing? | `noMamba`, `convMixer` |
 | A2 branches | `br1`, `br2`, (ref = 4), `br8` |
 | A3 weight sharing | `unshared` |
-| A4 scan order | `dd`, `bidir`, `tri`, `random` |
+| A4 scan order | `dd`, `cross` (pvm3D's), `bidir`, `tri`, `random` |
 | A5 placement | `enc2dec1` (legacy), `encAll` |
 | A6 bridge | `bridgeNone`, `bridgeSpatial`, `bridgeChannel` |
 | A7 recipe | `AdamWCos50` (2D paper's), `noDS` |
 | A8 SSM | `dstate8`, `dstate32`, `expand1` |
+| A9 why is Mamba bypassed? | `nativeInit`, `noInnerSkip`, `nativeInitNoInnerSkip` (finding 8) |
+
+**Decided 2026-11-18: the first block is A1 + A9 + `dd` + Tiny-S**, as `scripts/cluster/runs/S1_mamba.txt`
+(49 runs, open data only: Hippocampus 5-fold, LiTS and AMOS fold 0), followed by `mamba_knockout.py` on every PVM run.
+Which paper we write (method paper vs. rigorous "the Mamba is bypassed" analysis paper) depends on it. The
+original S1 (Gate A parity, Hippocampus nnU-Net, width pilot) follows as soon as ACDC/KiTS are on disk.
 
 **E4. Main benchmark (P0).** `PVM3DFinal_S`, 5-fold × 7 datasets.
 
@@ -282,7 +317,8 @@ ACDC for A1/A3/A4.
 | Block | Run file | Contents |
 |---|---|---|
 | Pre-S1 (laptop) | `laptop_pre.txt` | Hippocampus `PVM3D_Legacy` + `PVM3D_S`, 5-fold. About 12 s/epoch, so about 3.3 h per fold. Registrations, downloads and preprocessing in parallel. |
-| S1 | `S1.txt` | Throughput measurement (sets concurrency and `ABLATION_EPOCHS`); Gate A; E2; Hippocampus nnU-Net; LightM-UNet on ACDC/Hippocampus. **Gate A.** |
+| S1-M | `S1_mamba.txt` | **First.** Is Mamba load-bearing? A1 + A9 + `dd` + Tiny-S on Hippocampus/LiTS/AMOS, then `mamba_knockout.py`. Also the throughput measurement (concurrency, `ABLATION_EPOCHS`). **Decides the paper's framing.** |
+| S1 | `S1.txt` | Gate A; E2; Hippocampus nnU-Net; LightM-UNet on ACDC/Hippocampus (when ACDC/KiTS are available). **Gate A.** |
 | S2 | `S2.txt` | A1–A5 + A7, fold 0 × 3 datasets. **Gate B: set `FINAL_DESIGN`.** |
 | S3 | `S3.txt` | A6, A8; 5-fold A1/A3/A4; E4 on Hippocampus, ACDC, BTCV |
 | S4 | `S4.txt` | E4 on KiTS, AMOS, LiTS, BraTS |
@@ -341,6 +377,7 @@ Release: code, trainers, plans, splits, checkpoints, and per-case CSVs.
    - Clone, run `setup_env.sh`, submit `gpu_check.sbatch` on both GPU types.
    - `download_open_data.sh` (Hippocampus, LiTS, AMOS), then convert, `preprocess.sbatch`, `verify`.
    - With Rohan's go-ahead: `fetch_baselines.sh` + `pytest tests/test_external_baselines.py`, as a job.
-4. S1: `sbatch scripts/cluster/slurm/train.sbatch scripts/cluster/runs/S1.txt 4`.
+4. First block: `sbatch scripts/cluster/slurm/train.sbatch scripts/cluster/runs/S1_mamba.txt 4`, then S1 once
+   ACDC/KiTS are available (`sbatch ... runs/S1.txt 4`).
    - Runs whose dataset isn't converted and planned yet show as `nodata` and are skipped.
    - Resubmitting after ACDC/KiTS arrive picks them up. No special run file is needed.
