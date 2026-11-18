@@ -1,9 +1,17 @@
 # PVM-3D: extending UltraLight VM-UNet to volumetric segmentation
 
-Status: **architecture designed and prototyped, not yet trained.** Everything below the
-"Measured" table is real (a working model, measured on this machine); everything under
-"Performance estimate" is a grounded prediction, not a result — no training run has
-happened yet. See `docs/3d_pvm_prototype/` for the runnable prototype this doc describes.
+> **Journal version:** the experiment and dataset plan for the publication, and the nnU-Net-based
+> infrastructure that supersedes this document's pipeline, are in
+> [3d_journal_roadmap.md](3d_journal_roadmap.md). The results below are the preliminary ones it builds on.
+
+Status: **trained and evaluated on real data.** Both PVM-3D and the standard 3D U-Net
+baseline were trained for 300 epochs on MSD Task04_Hippocampus (200 train / 30 val / 30
+test volumes) under identical conditions (same split, seed, optimizer, schedule) and
+evaluated on the held-out test set. The former "Performance estimate" section below has
+been replaced with these measured results. The production code lives at
+`models/UltraLight_VM_UNet_3D.py`, `models/StandardUNet3D.py`, `train3d.py`,
+`dataprepare/Prepare_Hippocampus.py`, and `scripts/failure_analysis_3d.py` — promoted
+from the `docs/3d_pvm_prototype/` prototype this doc originally described.
 
 ## Why this is a real gap, not a rehash
 
@@ -106,52 +114,59 @@ nobody runs for a structure this small.
 Both models ran a real forward+backward pass without error (gradient flow confirmed,
 not just an architecture that instantiates).
 
-## Performance estimate — a prediction, not a result
+## Measured training results (real, MSD Task04_Hippocampus test set)
 
-No training has happened. The estimate below is built from two anchors, both real:
+Trained with `train3d.py` (`configs/config_setting_3d.py`: AdamW lr 1e-3, wd 1e-2,
+CosineAnnealingLR, seed 42, batch 8, 300 epochs — identical across both models) on the
+seeded 200 train / 30 val / 30 test split from `dataprepare/Prepare_Hippocampus.py`.
 
-**Anchor 1 — the 2D precedent, already in this repo's own reference paper.** On
-ISIC2017, plain U-Net (2.009M params) scored DSC 0.8989; UltraLight VM-UNet (0.049M
-params, 41x fewer) scored **0.9091 — higher, not lower**, despite the massive
-compression. The paper's own explanation: PVM's parallel branches concentrate on the
-target region, which helps DSC/IoU at a small cost to background (SP) recognition.
+One correction to the estimate this replaces: MSD Task04_Hippocampus ships **260**
+labeled training volumes, not 263 — that number was an estimate made before the archive
+had actually been opened; `dataset.json`'s `numTraining` and the real file count both
+say 260, and the split above (200/30/30) was sized against the real total.
 
-**Anchor 2 — published Hippocampus baselines.** nnU-Net (a heavily-engineered,
-self-configuring pipeline — deep supervision, ensembling, extensive augmentation) gets
-~0.89–0.90 DSC on this task. A plain, non-self-configuring 3D U-Net like the one
-measured above would realistically land somewhat below that, roughly **0.85–0.88 DSC**.
+| | PVM-3D | Standard 3D U-Net | 2D precedent (ISIC2017) |
+|---|---|---|---|
+| parameters | **64,804** (0.065M) | 5,644,947 (5.645M) | 41x fewer, DSC *higher* |
+| test DSC, mean over anterior+posterior | **0.8531** | **0.8972** | — |
+| test DSC — anterior | 0.8544 | 0.9069 | |
+| test DSC — posterior | 0.8518 | 0.8874 | |
+| test DSC — background | 0.9984 | 0.9990 | |
+| train wall-clock (300 epochs, this GPU) | ~12 min | ~38 min | |
 
-**Prediction: PVM-3D likely lands in the 0.80–0.87 DSC range** — plausibly close to or
-even matching the standard-U-Net baseline, but with meaningfully more downside risk than
-the 2D case, for reasons specific to this project's own findings, not generic caution:
+PVM-3D landed at **0.8531** — inside the 0.80–0.87 DSC range this doc predicted before
+training, but **4.4 points below** the standard 3D U-Net (0.8972), the opposite
+direction from the 2D case (where UltraLight VM-UNet scored *higher* than plain U-Net).
+87x fewer parameters for a 4.4-point DSC cost is a real, usable trade-off — not a
+failure — but it confirms the risk flagged before training, not the optimistic case.
 
-- The compression ratio here (87x) is roughly *double* the 2D case's (41x), on a
-  3-class task instead of binary.
-- This project's own failure analysis (`results/COMPARISON.md#failure-analysis-and-augmentation`)
-  found PVM-based models have a **measured, size-linked over-segmentation bias**: small
-  lesions get rounded into a bigger, smoother blob (59% of ISIC2018's outliers,
-  correlation −0.53 between lesion size and over-segmentation severity). Hippocampus is
-  *entirely* small-ROI — there's no large-diffuse-structure case to balance it out the
-  way ISIC2018 had both failure modes. This is the single most likely place the 3D model
-  underperforms a plain 3D U-Net: boundary precision on a small, thin structure.
-- 4 downsampling stages was chosen to preserve resolution for this small ROI; if that
-  turns out to be too shallow for the model to build enough context, that would show up
-  as a real, measurable DSC gap versus the deeper standard baseline — another concrete,
-  checkable risk rather than a vague one.
+**The size-linked over-segmentation bias generalizes to 3D, and is worse for PVM-3D
+than for the standard U-Net.** `scripts/failure_analysis_3d.py` measured, on the 30 test
+volumes:
 
-The only way to replace this range with a real number is to train it — that's the
-natural next step if this direction is pursued.
+| | PVM-3D | Standard 3D U-Net |
+|---|---|---|
+| corr(hippocampus size, area_ratio) | **−0.589** (p=0.001) | −0.412 (p=0.024) |
+| over-segmenters (area_ratio > 1.1) | 5 / 30 | 3 / 30 |
+| mean area_ratio | 1.034 | 1.007 |
 
-## Next steps (not started)
+Both models over-segment smaller volumes more than larger ones (negative correlation,
+both significant), same direction and similar magnitude to ISIC2018's −0.53 — but the
+effect is notably stronger for PVM-3D. This is the same failure mode
+`results/COMPARISON.md#failure-analysis-and-augmentation` found in 2D, now confirmed
+on an entirely-small-ROI 3D task rather than predicted from it.
 
-1. Data pipeline: MSD Task04_Hippocampus (263 training volumes, AWS Open Data / Hugging
-   Face — no PH2-style manual request-form friction), patch extraction to 64³, split
-   train/val/test matching this repo's seeded-permutation convention
-   (`dataprepare/Prepare_ISIC2017.py`'s documented split-bias lesson applies here too).
-2. Train PVM-3D and the standard-3D-U-Net baseline under identical conditions (same
-   split, seed, optimizer, schedule) — mirroring how every 2D result in this repo has a
-   like-for-like baseline.
-3. Given the size-linked over-segmentation risk above, look at per-case DSC broken down
-   by hippocampus volume size specifically, not just an aggregate — the same diagnostic
-   this repo already built for ISIC2018 (`scripts/failure_analysis.py`) generalizes
-   directly.
+## Possible follow-ups
+
+- The gap is concentrated in boundary precision, not gross localization (background DSC
+  is within 0.001 of the baseline for both). A targeted fix in the same spirit as the 2D
+  repo's augmentation experiment (`scripts/train_augmented.py`) — e.g. elastic
+  deformation or boundary-aware loss weighting — is the natural next experiment, the
+  same pattern this repo already used once.
+- 4 downsampling stages was chosen to preserve resolution for the small ROI; the
+  measured gap doesn't rule out that a 5th stage (more global context, at the cost of
+  the 2³ bottleneck this doc originally rejected as too coarse) would help — worth a
+  direct ablation given the result now exists to compare against.
+- Only one seed was run per model. The DSC gap (4.4 points) is well outside the loss
+  fluctuation visible late in training (last-50-epoch DSC swings of ~1-1.5 points for
+  both models), so it's very unlikely to be noise, but a second seed would confirm it.
