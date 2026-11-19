@@ -300,6 +300,7 @@ def main():
 
     t0 = time.time()
     running = []
+    started_keys = set()
     stop = {'flag': False}
 
     def on_signal(signum, frame):
@@ -329,6 +330,12 @@ def main():
         for r in running:
             heartbeat(r)
         queue = [r for r in queue if r.state() != 'done']  # possibly finished by another job
+        # datasets converted/planned while this job runs: pick their runs up now
+        waiting = [r for r in runs if r not in queue and r not in running and r.attempts == 0
+                   and r.key not in started_keys and r.state() not in ('done', 'nodata')]
+        for r in waiting:
+            print(f'[{hours:.2f} h] dataset ready: queued {r.key}')
+        queue += waiting
         if hours < args.launch_window_h:
             launched = True
             while launched:
@@ -356,6 +363,7 @@ def main():
                     r.proc = subprocess.Popen(cmd, env=env, stdout=log, stderr=subprocess.STDOUT,
                                               start_new_session=True)
                     r.gpu, r.started, r.attempts = g, time.time(), r.attempts + 1
+                    started_keys.add(r.key)
                     queue.remove(r)
                     running.append(r)
                     print(f'[{hours:.2f} h] started {r.key} on GPU {g} ({st}{", resume" if st == "partial" else ""})')

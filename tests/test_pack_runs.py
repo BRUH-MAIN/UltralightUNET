@@ -80,3 +80,34 @@ def test_amos_modality_prefers_image_derived_map(tmp_path, monkeypatch):
     assert not g.amos_is_mri('amos_0500') and g.amos_is_mri('amos_0507') and not g.amos_is_mri('amos_0042')
     with pytest.warns(UserWarning, match='id rule'):
         assert g.amos_is_mri('amos_0555')   # unmapped -> fallback, loudly
+
+
+def test_runs_whose_dataset_appears_midjob_get_queued(tmp_path, monkeypatch):
+    """A job started before LiTS/AMOS finish preprocessing must pick those runs up
+    when their plans appear, instead of idling until the next submission."""
+    import subprocess
+    ready = {'4': True, '3': False}
+    monkeypatch.setattr(pr.Run, 'has_data', lambda self: ready[self.dataset])
+    monkeypatch.setattr(pr.Run, 'out_dir', lambda self: str(tmp_path / self.key))
+    launched = []
+
+    class FakeProc:
+        pid = 0
+        def poll(self):
+            return 0
+    def fake_popen(cmd, **kw):
+        launched.append(cmd[1])
+        ready['3'] = True            # LiTS finishes preprocessing while the first run trains
+        (tmp_path / f'{cmd[1]}_{cmd[5]}_nnUNetPlans_3d_fullres_f{cmd[3]}' / 'validation').mkdir(parents=True)
+        for f in ('checkpoint_final.pth', 'validation/summary.json'):
+            (tmp_path / f'{cmd[1]}_{cmd[5]}_nnUNetPlans_3d_fullres_f{cmd[3]}' / f).write_text('{"foreground_mean": {"Dice": 0}}')
+        return FakeProc()
+    monkeypatch.setattr(subprocess, 'Popen', fake_popen)
+    monkeypatch.setattr(pr, 'POLL_S', 0)
+    for v in ('nnUNet_raw', 'nnUNet_preprocessed', 'nnUNet_results'):
+        monkeypatch.setenv(v, str(tmp_path))
+    rf = tmp_path / 'runs.txt'
+    rf.write_text('4 3d_fullres 0 nnUNetTrainerPVM3D_S_ref\n3 3d_fullres 0 nnUNetTrainerPVM3D_S_ref\n')
+    monkeypatch.setattr(sys, 'argv', ['pack_runs.py', str(rf), '--capacity', '1', '--gpus', '0', '--cores', '4'])
+    pr.main()
+    assert launched == ['4', '3']
