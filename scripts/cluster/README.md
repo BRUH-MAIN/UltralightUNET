@@ -38,7 +38,12 @@ bash scripts/cluster/download_open_data.sh $PVM3D_DATA_ROOT/downloads    # MSD H
 **Datasets that need a person** (registration or third-party code; see the header of `download_open_data.sh`):
 - **KiTS23:** the official downloader from github.com/neheller/kits23.
 - **ACDC:** CREATIS registration.
-- **BraTS2021, BTCV:** Synapse.
+- **BraTS2021:** the Kaggle mirror of the official training set (CC BY 4.0, so redistribution is allowed).
+  Put a Kaggle API token in `~/.kaggle/kaggle.json` on the cluster yourself (chmod 600; never paste it into a
+  chat), then run `bash scripts/cluster/download_brats21_kaggle.sh $PVM3D_DATA_ROOT/downloads` (about 12–13 GB).
+  It refuses to finish unless all 1,251 cases are present with five files each. If a standalone per-case archive
+  differs from the main archive's copy, it uses the standalone one and prints the case.
+- **BTCV:** Synapse.
 
 Put each one under `$PVM3D_DATA_ROOT/downloads/`.
 

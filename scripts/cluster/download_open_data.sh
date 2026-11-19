@@ -11,7 +11,7 @@
 # NOT handled here (need a person):
 #   KiTS23     official downloader is code from github.com/neheller/kits23 (pip install + kits23_download_data)
 #   ACDC       registration at the CREATIS challenge site
-#   BraTS2021  Synapse syn25829067 (account + data-use terms)
+#   BraTS2021  Kaggle mirror (CC BY 4.0): scripts/cluster/download_brats21_kaggle.sh -- needs a Kaggle API token
 #   BTCV       Synapse syn3193805 (account + registration)
 set -euo pipefail
 DEST="${1:?usage: download_open_data.sh <DEST>}"
@@ -46,7 +46,9 @@ for f in rec.get("files", []):
   cat amos_files.txt
   [ -s amos_files.txt ] || { echo "no amos22*.zip in Zenodo record 7262581 -- check https://zenodo.org/records/7262581"; exit 1; }
   while read -r key url size; do fetch "$url" "$key"; done < amos_files.txt
-  mkdir -p _extract_amos && unzip -q -o amos22*.zip -d _extract_amos
+  mkdir -p _extract_amos
+  if command -v unzip >/dev/null; then unzip -q -o amos22*.zip -d _extract_amos
+  else python3 -I -m zipfile -e amos22*.zip _extract_amos; fi
   # the converter wants the folder holding imagesTr/ labelsTr/ imagesVa/ ...
   inner="$(dirname "$(find _extract_amos -maxdepth 3 -type d -name imagesTr | head -1)")"
   mv "$inner" amos22 && rm -rf _extract_amos amos22*.zip amos_record.json amos_files.txt

@@ -184,7 +184,7 @@ splits) match Revisited's.
 | 220 | **KiTS2023** | CT | 489 | kidney+masses / masses / tumor (regions) | Revisited "recommended", least saturated | `github.com/neheller/kits23` download script |
 | 219 | **AMOS2022 task 2** | CT + MRI | 360 | 15 organs | Revisited "recommended"; long-range multi-organ context; CT/MRI split for E8 | zenodo.org/record/7262581 |
 | 3 | **LiTS** (= MSD Task03 Liver) | CT | 131 | liver, tumor | Revisited "middle ground"; LightM-UNet's own 3D benchmark | MSD (HF mirror, as for Hippocampus) |
-| 137 | **BraTS2021** | 4-channel MRI | 1251 | WT / TC / ET (regions) | Saturated, but reviewers expect it; multi-channel input | Synapse syn25829067 (registration) |
+| 137 | **BraTS2021** | 4-channel MRI | 1251 | WT / TC / ET (regions) | Saturated, but reviewers expect it; multi-channel input | Kaggle mirror of the official training set (CC BY 4.0; `download_brats21_kaggle.sh`, integrity-checked). Cite Baid 2021, Menze 2015, Bakas 2017 and TCIA DOI 10.7937/jc8x-9874 |
 | 17 | **BTCV** | CT | 30 | 13 organs | Noisy per Revisited, but ubiquitous; report with that caveat | Synapse syn3193805 (registration) |
 | 4 | **MSD Hippocampus** | MRI | 260 | anterior, posterior | Continuity with existing work; tiny structures | Done (converted and planned on the laptop) |
 
