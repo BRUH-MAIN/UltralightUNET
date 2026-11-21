@@ -10,9 +10,13 @@
 # CC BY 4.0 (TCIA collection RSNA-ASNR-MICCAI-BraTS-2021, DOI 10.7937/jc8x-9874),
 # which permits redistribution with attribution. The paper must still cite the
 # BraTS 2021 papers (Baid et al. 2021 arXiv:2107.02314; Menze et al. 2015 TMI;
-# Bakas et al. 2017 Sci Data) and the TCIA DOI. Integrity is checked below: the
-# case count must be 1,251 with all five files per case, and nnU-Net's converter
-# rejects any label outside {0,1,2,4}.
+# Bakas et al. 2017 Sci Data) and the TCIA DOI.
+#
+# Provenance: this is a community mirror, not an official BraTS/TCIA/Synapse host,
+# and no per-file checksums of the official release are published, so byte-identity
+# cannot be proven. What is checked: 1,251 cases, five files each, every NIfTI header
+# 240x240x155 at 1 mm (catches truncated, resampled, re-processed or swapped files),
+# and nnU-Net's converter rejects any label outside {0,1,2,4}.
 #
 # BRATS_LOCAL_ZIP=/path/to/archive.zip skips the download (zip fetched some other way).
 # BRATS_CHECK_ONLY=1 only runs the integrity check on <DEST>/BraTS2021_Training_Data.
@@ -87,14 +91,48 @@ else
   rm -rf _extract_brats brats21_kaggle.zip
 fi
 
-# integrity: count + five files per case
+# integrity: count, five files per case, and every NIfTI header matching the official
+# release (240 x 240 x 155 voxels at 1 mm). There are no published per-file checksums
+# for BraTS 2021, so this cannot prove the mirror is byte-identical -- it catches
+# truncated, re-processed, resampled or swapped files. nnU-Net's converter then
+# rejects any label outside {0,1,2,4}. Standard library only (gzip + struct).
 python3 -I - "$OUT" <<'EOF'
-import os, re, sys
+import gzip, os, re, struct, sys
 root = sys.argv[1]
 cases = sorted(d for d in os.listdir(root) if re.fullmatch(r'BraTS2021_\d{5}', d))
 need = ('t1', 't1ce', 't2', 'flair', 'seg')
-bad = [c for c in cases if not all(os.path.isfile(os.path.join(root, c, f'{c}_{m}.nii.gz')) for m in need)]
-print(f'{len(cases)} cases in {root}; {len(bad)} incomplete' + (f': {bad[:10]}' if bad else ''))
-sys.exit(0 if len(cases) == 1251 and not bad else 'expected 1251 complete cases (official BraTS 2021 training set)')
+missing = [c for c in cases if not all(os.path.isfile(os.path.join(root, c, f'{c}_{m}.nii.gz')) for m in need)]
+
+def header(path):
+    with gzip.open(path, 'rb') as f:
+        h = f.read(348)
+    if len(h) < 348:
+        return 'truncated header'
+    for e in ('<', '>'):
+        if struct.unpack(e + 'i', h[:4])[0] == 348:
+            dim = struct.unpack(e + '8h', h[40:56])
+            pix = struct.unpack(e + '8f', h[76:108])
+            if dim[0] != 3 or dim[1:4] != (240, 240, 155):
+                return f'shape {dim[1:1 + dim[0]]}'
+            if any(abs(x - 1.0) > 1e-3 for x in pix[1:4]):
+                return f'spacing {tuple(round(x, 3) for x in pix[1:4])}'
+            return None
+    return 'not a NIfTI-1 header'
+
+bad_hdr = []
+for c in cases:
+    if c in missing:
+        continue
+    for m in need:
+        try:
+            err = header(os.path.join(root, c, f'{c}_{m}.nii.gz'))
+        except (OSError, EOFError) as e:
+            err = f'unreadable ({e.__class__.__name__})'
+        if err:
+            bad_hdr.append(f'{c}_{m}: {err}')
+print(f'{len(cases)} cases in {root}; {len(missing)} incomplete' + (f': {missing[:10]}' if missing else '')
+      + f'; {len(bad_hdr)} files with an unexpected header' + (f': {bad_hdr[:10]}' if bad_hdr else ''))
+ok = len(cases) == 1251 and not missing and not bad_hdr
+sys.exit(0 if ok else 'expected 1251 complete cases, every volume 240x240x155 at 1 mm (official BraTS 2021 training set)')
 EOF
 echo "next: python scripts/cluster/convert_datasets.py brats21 --src $OUT"
