@@ -12,10 +12,13 @@
 #   MSD   Hugging Face mirror Novel-BioMedAI/Medical_Segmentation_Decathlon by default.
 #         It is byte-identical to the official msd-for-monai S3 bucket: verified
 #         2026-11-21 for Task04_Hippocampus (same SHA-256 from both hosts), and
-#         Task03_Liver has the same size on both. On the cluster the S3 bucket ran at
-#         ~0.7 MB/s (~11 h for Liver) versus ~13-16 MB/s from Hugging Face. Because the
-#         bytes are identical, a partial .tar from either host resumes from the other;
-#         the SHA-256 check below proves the result either way.
+#         Task03_Liver has the same size on both. Because the bytes are identical, a
+#         partial .tar from either host resumes from the other; the checks below prove it.
+#         Network note (cluster login node, 2026-11-21): every host was throttled PER
+#         CONNECTION to ~0.7-1.6 MB/s (S3, Hugging Face, Zenodo). For the 29 GB Liver tar,
+#         8 parallel `curl -r` byte ranges from the HF URL appended to the partial file
+#         took ~21 min, and the result passed both the SHA-256 and the official S3 ETag.
+#         Zenodo did not speed up with parallel ranges, so AMOS runs as one stream (~4 h).
 #   AMOS  Zenodo record 7262581 (the link nnU-Net's converter names), MD5 from Zenodo's API.
 #
 # NOT handled here (need a person):

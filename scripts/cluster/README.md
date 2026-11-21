@@ -33,7 +33,10 @@ Every job sources `.venv-cluster` and `scripts/cluster/env.sh "$PVM3D_DATA_ROOT"
 
 ## 1. Data
 
-**Open datasets** (login node, inside tmux; about 53 GB, roughly 1 h):
+**Open datasets** (login node, inside tmux; about 53 GB). The login node throttles each connection to about
+0.7–1.6 MB/s, so a single stream takes hours. For the MSD tars, parallel byte ranges from the Hugging Face URL
+then appended to the partial file work; the script's checksums verify the result. Zenodo (AMOS) gained nothing
+from parallel ranges, so it runs as one stream of about 4 h.
 
 ```bash
 bash scripts/cluster/download_open_data.sh $PVM3D_DATA_ROOT/downloads    # MSD Hippocampus + Liver (LiTS), AMOS22
