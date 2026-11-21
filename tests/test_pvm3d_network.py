@@ -244,3 +244,12 @@ def test_no_inner_skip_routes_everything_through_mixer():
     x = torch.randn(1, 16, 3, 4, 5)
     # with the mixer silenced and no bypass, the output is proj(norm(0)) = proj bias, input-independent
     torch.testing.assert_close(net(x), net(torch.randn_like(x)))
+
+
+def test_mamba_ssm_package_imports():
+    """Importing mamba_ssm needs no GPU, but it does need its undeclared runtime
+    imports (transformers.generation). The CUDA-gated tests skip on CPU, so
+    without this a CPU-only setup check passes while every training run would die
+    at import -- which is how a missing `transformers` slipped through once."""
+    import mamba_ssm  # noqa: F401
+    from mamba_ssm import Mamba  # noqa: F401

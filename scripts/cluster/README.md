@@ -15,12 +15,16 @@ How this cluster works:
 
 ```bash
 git clone -b replication https://github.com/BRUH-MAIN/Ultralightunet.git && cd Ultralightunet
+PYTHON=/dist_home/common-apps/conda/bin/python3.11 \
 bash scripts/cluster/setup_env.sh        # isolated venv from conda's python3.11, torch 2.10/cu128, prebuilt mamba
                                          # wheels, nnU-Net 2.8.1; CPU-only tests here (no GPU outside SLURM)
 export PVM3D_DATA_ROOT=/dist_home/<you>/<project>/pvm3d_data     # shared NFS path, about 400 GB; put it in ~/.bashrc
 sbatch scripts/cluster/slurm/gpu_check.sbatch                          # kernel tests on a compute GPU ...
 sbatch --nodelist=asaicomputenode02 scripts/cluster/slurm/gpu_check.sbatch   # ... once per GPU type (A100 / Ada)
 ```
+
+`PYTHON=` is needed here because neither `python3.11` nor `conda` is on the login node's PATH. Without it the
+script tries `module load conda`. On 2026-11-21 the A100 check passed (111 tests).
 
 `gpu_check-<jobid>.out` must end with all tests passing before any training.
 

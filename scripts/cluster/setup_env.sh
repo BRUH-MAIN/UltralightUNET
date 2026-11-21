@@ -29,10 +29,16 @@ if [ -n "${PYTHON:-}" ]; then
   PY="$PYTHON"
 elif command -v python3.11 >/dev/null 2>&1; then
   PY="$(command -v python3.11)"
-elif command -v conda >/dev/null 2>&1 && [ -x "$(conda info --base)/bin/python3.11" ]; then
-  PY="$(conda info --base)/bin/python3.11"
 else
-  echo "no python3.11 found: set PYTHON=/path/to/python3.11" >&2; exit 1
+  # conda is often only on PATH after `module load conda` on HPC login nodes
+  if ! command -v conda >/dev/null 2>&1 && command -v module >/dev/null 2>&1; then
+    module load conda >/dev/null 2>&1 || true
+  fi
+  if command -v conda >/dev/null 2>&1 && [ -x "$(conda info --base)/bin/python3.11" ]; then
+    PY="$(conda info --base)/bin/python3.11"
+  else
+    echo "no python3.11 found: set PYTHON=/path/to/python3.11 (e.g. <conda base>/bin/python3.11)" >&2; exit 1
+  fi
 fi
 echo "python: $PY ($("$PY" --version))   torch: $TORCH_SPEC from $TORCH_INDEX"
 
@@ -55,6 +61,10 @@ pip install -r "$REPO/requirements-3d.txt" -c "$CONSTRAINTS"
 if ! python -c "import mamba_ssm" 2>/dev/null; then
   python "$REPO/scripts/install_mamba.py" || python "$REPO/scripts/build_mamba.py" --all-archs
 fi
+
+# the mamba wheels are --no-deps: prove the package actually imports before anything else
+python -c "import mamba_ssm, causal_conv1d; print('mamba_ssm', mamba_ssm.__version__, 'imports OK')" || {
+  echo "mamba_ssm does not import -- missing dependency? (see requirements-3d.txt)" >&2; exit 1; }
 
 python "$REPO/scripts/cluster/install_trainers.py"
 

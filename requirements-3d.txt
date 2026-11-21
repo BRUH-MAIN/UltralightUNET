@@ -23,4 +23,8 @@ einops>=0.8.0
 thop>=0.1.1
 pytest>=8.0
 huggingface_hub>=0.26
+# mamba_ssm's package __init__ imports mamba_ssm.utils.generation, which imports
+# transformers.generation -- `import mamba_ssm` fails without it, even though nothing here
+# uses transformers (the mamba wheels are installed --no-deps, so it must be listed here).
+transformers>=4.40
 monai>=1.3,<1.6   # LightM-UNet baseline (trainers_external.py) builds on MONAI blocks

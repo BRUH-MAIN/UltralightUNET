@@ -117,7 +117,8 @@ def paired_tests(pc, ref, n_boot, seed):
             rows = []
             for other in sorted(set(g.trainer) - {ref}):
                 b = g[g.trainer == other].set_index(['fold', 'case'])
-                j = a[[metric]].join(b[[metric]], lsuffix='_ref', rsuffix='_oth', how='inner').dropna()
+                j = a[[metric]].rename(columns={metric: f'{metric}_ref'}).join(
+                    b[[metric]].rename(columns={metric: f'{metric}_oth'}), how='inner').dropna()
                 if len(j) < 5:
                     continue
                 d = (j[f'{metric}_ref'] - j[f'{metric}_oth']).to_numpy()
