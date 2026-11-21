@@ -30,16 +30,49 @@ MSD_SOURCE="${MSD_SOURCE:-hf}"
 mkdir -p "$DEST"
 cd "$DEST"
 
-# SHA-256 of the MSD tars (Hugging Face LFS object ids == official S3 content, see above)
+# Two independent identities per MSD tar, both checked in one read:
+#  * SHA-256 = the Hugging Face mirror's LFS object id;
+#  * the official msd-for-monai S3 object's multipart ETag (MD5 of the 8 MiB part MD5s,
+#    "-<parts>"), so a file fetched from the mirror is also proven byte-identical to the
+#    official bucket. Method validated 2026-11-21: recomputing Task04_Hippocampus's ETag
+#    from the HF-verified file reproduces S3's value exactly.
 declare -A MSD_SHA256=(
   [Task04_Hippocampus]=282d808a3e84e5a52f090d9dd4c0b0057b94a6bd51ad41569aef5ff303287771
   [Task03_Liver]=4007d9db1acda850d57a6ceb2b3998b7a0d43f8ad5a3f740dc38bc0cb8b7a2c5
+)
+declare -A MSD_S3_ETAG=(
+  [Task04_Hippocampus]=81aa748a1df6d95ecb6f1b5812f132b1-4
+  [Task03_Liver]=288b95e0d9ead5215f43f2aa9d786f2e-3449
 )
 case "$MSD_SOURCE" in
   hf) MSD_URL=https://huggingface.co/datasets/Novel-BioMedAI/Medical_Segmentation_Decathlon/resolve/main ;;
   s3) MSD_URL=https://msd-for-monai.s3-us-west-2.amazonaws.com ;;
   *) echo "MSD_SOURCE must be hf or s3" >&2; exit 2 ;;
 esac
+
+verify_msd() {  # file sha256 s3-etag -- one pass over the file
+  echo "   verifying $1 (SHA-256 vs HF mirror, multipart ETag vs official S3) ..."
+  if ! python3 -I - "$1" "$2" "$3" <<'EOF'
+import hashlib, sys
+path, want_sha, want_etag = sys.argv[1:4]
+part = 8 * 1024 * 1024
+sha, parts = hashlib.sha256(), []
+with open(path, 'rb') as f:
+    while chunk := f.read(part):
+        sha.update(chunk)
+        parts.append(hashlib.md5(chunk).digest())
+etag = f'{hashlib.md5(b"".join(parts)).hexdigest()}-{len(parts)}'
+ok_sha, ok_etag = sha.hexdigest() == want_sha, etag == want_etag
+print(f'   sha256 {"OK" if ok_sha else "MISMATCH " + sha.hexdigest()}; '
+      f'official S3 ETag {"OK" if ok_etag else "MISMATCH " + etag}')
+sys.exit(0 if ok_sha and ok_etag else 1)
+EOF
+  then
+    echo "   CHECKSUM MISMATCH for $1 -- deleting it; rerun to download again" >&2
+    rm -f "$1"
+    exit 1
+  fi
+}
 
 fetch() {  # url outfile
   echo "== $2  <- $1"
@@ -66,7 +99,7 @@ for t in Task04_Hippocampus Task03_Liver; do
     continue
   fi
   fetch "$MSD_URL/$t.tar" "$t.tar"
-  verify "$t.tar" sha256 "${MSD_SHA256[$t]}"
+  verify_msd "$t.tar" "${MSD_SHA256[$t]}" "${MSD_S3_ETAG[$t]}"
   rm -rf "_extract_$t" && mkdir "_extract_$t"
   tar --no-same-owner -xf "$t.tar" -C "_extract_$t"
   mv "_extract_$t/$t" "$t"
